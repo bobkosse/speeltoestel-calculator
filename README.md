@@ -38,6 +38,43 @@ De zaag- en kostenlogica heeft unit tests:
 npm test
 ```
 
+## Troubleshooting
+
+**`Error: Electron failed to install correctly` na `npm start`**
+
+Het Electron-binary is dan niet (volledig) gedownload. Los dit op met:
+
+```bash
+rm -rf node_modules/electron
+npm install
+node node_modules/electron/install.js
+```
+
+Controleer daarna:
+
+```bash
+cat node_modules/electron/path.txt        # moet "dist/Electron.app" (macOS) bevatten
+ls node_modules/electron/dist/
+```
+
+Op macOS kan Gatekeeper het binary blokkeren; verwijder de quarantine-flag:
+
+```bash
+xattr -dr com.apple.quarantine node_modules/electron/dist/Electron.app
+```
+
+Daarna opnieuw:
+
+```bash
+npm start
+```
+
+Werkt het nog steeds niet (bijv. achter een strikte proxy)? Installeer met scripts aan:
+
+```bash
+npm install --include=dev
+```
+
 ## Opslag
 
 Projecten worden opgeslagen als **JSON-bestand** via Bestand → Openen… / Opslaan /

@@ -968,7 +968,8 @@ impl App {
             fn footer(&mut self) {
                 let tekst = "Afgedrukt met Speelgoed Calculator van Robuust Buitenspelen";
                 self.lijn(MARGIN, PAGE_H - 12.0, PAGE_W - MARGIN, PAGE_H - 12.0);
-                self.tekst_op(tekst, (PAGE_W - tekst.len() as f64 * 3.9) / 2.0, PAGE_H - 10.0, 7.5, false, &self.grijs.clone());
+                // Helvetica ~0,5 em gemiddelde tekenbreedte: 7,5 pt ≈ 1,32 mm per teken
+                self.tekst_op(tekst, (PAGE_W - tekst.len() as f64 * 1.35) / 2.0, PAGE_H - 10.0, 7.5, false, &self.grijs.clone());
             }
             fn ensure(&mut self, h: f64, pages: &mut Vec<PdfPage>) {
                 if self.y + h > PAGE_H - MARGIN {

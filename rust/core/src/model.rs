@@ -58,7 +58,6 @@ impl Default for Catalogus {
                     eenheid: "doos".to_string(),
                     aantal_per_eenheid: 100.0,
                     prijs_per_eenheid: 12.0,
-                    voorraad: 0.0,
                 },
                 PerStuk {
                     id: "s2".to_string(),
@@ -68,7 +67,6 @@ impl Default for Catalogus {
                     eenheid: "doos".to_string(),
                     aantal_per_eenheid: 50.0,
                     prijs_per_eenheid: 17.5,
-                    voorraad: 0.0,
                 },
             ],
             profielen: vec![Profiel {
@@ -125,9 +123,6 @@ pub struct PerStuk {
     /// Totaalprijs per inkoopeenheid (prijs van de verpakking).
     #[serde(default)]
     pub prijs_per_eenheid: f64,
-    /// Huidige voorraad, in stuks.
-    #[serde(default)]
-    pub voorraad: f64,
 }
 
 impl PerStuk {

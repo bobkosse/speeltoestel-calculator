@@ -568,14 +568,13 @@ impl App {
     fn mat_per_stuk(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
             ui.heading("Producten per stuk");
-            ui.label("Schroeven, bouten, etc. Geef per product de inkoopverpakking op (eenheid + aantal + prijs per verpakking); de stukprijs wordt automatisch berekend. Met 'Voorraad' houd je bij hoeveel je op voorraad hebt. Excl. BTW.");
+            ui.label("Schroeven, bouten, etc. Geef per product de inkoopverpakking op (eenheid + aantal + prijs per verpakking); de stukprijs wordt automatisch berekend. Excl. BTW.");
             egui::Grid::new("per_stuk_grid").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
                 ui.label(egui::RichText::new("Naam").strong());
                 ui.label(egui::RichText::new("Stukprijs (auto)").strong());
                 ui.label(egui::RichText::new("Eenheid").strong());
                 ui.label(egui::RichText::new("Aantal/eenh.").strong());
                 ui.label(egui::RichText::new("Prijs/eenh.").strong());
-                ui.label(egui::RichText::new("Voorraad").strong());
                 ui.label(egui::RichText::new("Extra info").strong());
                 ui.label("");
                 ui.end_row();
@@ -591,10 +590,6 @@ impl App {
                         .ui(ui);
                     egui::DragValue::new(&mut m.prijs_per_eenheid)
                         .speed(0.5)
-                        .range(0.0..=1000000.0)
-                        .ui(ui);
-                    egui::DragValue::new(&mut m.voorraad)
-                        .speed(1.0)
                         .range(0.0..=1000000.0)
                         .ui(ui);
                     text_field(ui, &mut m.info, 180.0);
@@ -614,12 +609,12 @@ impl App {
                         });
                     }
                 }
-            });
-            ui.horizontal(|ui| {
+                // invoerregel: zelfde kolommen/breedtes als de tabelrijen
                 egui::TextEdit::singleline(&mut self.nieuw_per_stuk.0)
                     .desired_width(200.0)
                     .hint_text("Naam")
                     .ui(ui);
+                ui.label("");
                 egui::TextEdit::singleline(&mut self.nieuw_per_stuk.1)
                     .desired_width(90.0)
                     .hint_text("Eenheid")
@@ -653,11 +648,11 @@ impl App {
                             eenheid: self.nieuw_per_stuk.1.trim().to_string(),
                             aantal_per_eenheid,
                             prijs_per_eenheid,
-                            voorraad: 0.0,
                         });
                         self.nieuw_per_stuk = (String::new(), String::new(), String::new(), String::new(), String::new());
                     }
                 }
+                ui.end_row();
             });
         });
     }
@@ -949,11 +944,8 @@ impl App {
                 format!("per stuk (nodig {})", l.aantal)
             } else {
                 format!(
-                    "nodig {} · voorraad {} · tekort {} · per {} stuks",
-                    l.aantal,
-                    l.voorraad,
-                    l.tekort,
-                    l.aantal_per_eenheid
+                    "nodig {} stuks · per {} {}",
+                    l.aantal, l.aantal_per_eenheid, l.eenheid
                 )
             };
             let aantal = if l.eenheid.is_empty() {
@@ -1132,8 +1124,8 @@ button {{ font-size: 15px; padding: 8px 16px; background: #A0622D; color: #fff; 
                             ui.label(self.fmt_bedrag(l.prijs_per_stuk));
                         } else {
                             ui.label(format!(
-                                "nodig {} · voorraad {} · tekort {}",
-                                l.aantal, l.voorraad, l.tekort
+                                "nodig {} stuks · per {} {}",
+                                l.aantal, l.aantal_per_eenheid, l.eenheid
                             ));
                             ui.label(format!("{} {}", l.inkoop_aantal, l.eenheid));
                             ui.label(self.fmt_bedrag(l.prijs_per_eenheid));

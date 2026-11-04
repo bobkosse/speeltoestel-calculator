@@ -104,7 +104,6 @@ mod tests {
                 eenheid: String::new(),
                 aantal_per_eenheid: 0.0,
                 prijs_per_eenheid: 0.0,
-                voorraad: 0.0,
             }],
             profielen: vec![Profiel {
                 id: "p1".into(),
@@ -142,8 +141,8 @@ mod tests {
     }
 
     #[test]
-    fn per_stuk_met_verpakking_en_voorraad() {
-        // doos van 100 stuks à €12,00 → stukprijs €0,12; nodig 24, voorraad 10 → tekort 14 → 1 doos = €12,00
+    fn per_stuk_met_verpakking() {
+        // doos van 100 stuks à €12,00 → stukprijs €0,12; nodig 24 → 1 doos = €12,00
         let mut catalogus = test_catalogus();
         catalogus.per_stuk = vec![PerStuk {
             id: "s1".into(),
@@ -153,7 +152,6 @@ mod tests {
             eenheid: "doos".into(),
             aantal_per_eenheid: 100.0,
             prijs_per_eenheid: 12.0,
-            voorraad: 10.0,
         }];
         let project = vec![ProjectLijn::PerStuk {
             id: "l1".into(),
@@ -163,7 +161,7 @@ mod tests {
         let res = bereken_project(&catalogus, &project);
         let l = &res.per_stuk[0];
         assert!((l.prijs_per_stuk - 0.12).abs() < 1e-9);
-        assert_eq!(l.tekort, 14);
+        assert_eq!(l.aantal, 24);
         assert_eq!(l.inkoop_aantal, 1);
         assert_eq!(l.kosten, 12.0);
         assert_eq!(res.totaal_excl, 12.0);

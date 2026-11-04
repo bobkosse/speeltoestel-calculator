@@ -67,6 +67,21 @@ mod tests {
     }
 
     #[test]
+    fn stress_veel_delen_blijft_snel() {
+        // 35 gemengde zaagdelen: moet binnen een seconde geoptimaliseerd zijn (node limit)
+        let mut items: Vec<Stuk> = Vec::new();
+        let lengtes = [2100, 1000, 950, 800, 730, 600, 500, 450, 400, 350, 300, 250, 200, 150, 100];
+        for i in 0..35 {
+            items.push(Stuk { lengte: lengtes[i % lengtes.len()], breedte: if i % 3 == 0 { 58 } else { 120 } });
+        }
+        let start = std::time::Instant::now();
+        let res = optimaliseer_profiel(&items, 120, &[(2000, 48.50), (2500, 55.0)], 3).unwrap();
+        let elapsed = start.elapsed();
+        println!("35 delen: {} planken, €{:.2}, {:?}", res.aantal, res.kosten, elapsed);
+        assert!(elapsed < std::time::Duration::from_secs(2), "te traag: {elapsed:?}");
+    }
+
+    #[test]
     fn te_lang_deel_kan_niet() {
         assert!(pack_optimaal(&[2500], 2000, 3).is_none());
     }

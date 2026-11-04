@@ -272,6 +272,8 @@ pub fn optimaliseer_profiel(
         return beste;
     }
 
+    const NODE_LIMIT: u64 = 400_000;
+
     fn rec(
         bins: &mut Vec<Bin>,
         items: &[Stuk],
@@ -281,7 +283,12 @@ pub fn optimaliseer_profiel(
         zaagsnede: i64,
         kosten: f64,
         best: &mut Option<(f64, Vec<Bin>)>,
+        nodes: &mut u64,
     ) {
+        *nodes += 1;
+        if *nodes > NODE_LIMIT {
+            return;
+        }
         if let Some((bc, _)) = best {
             if kosten >= *bc - 1e-9 {
                 return;
@@ -307,7 +314,7 @@ pub fn optimaliseer_profiel(
             if bins[j].strip_pas(stuk, zaagsnede) {
                 geprobeerd.push(sleutel);
                 bins[j].plaats_in_strip(stuk, zaagsnede);
-                rec(bins, items, i + 1, inkoop, plank_breedte, zaagsnede, kosten, best);
+                rec(bins, items, i + 1, inkoop, plank_breedte, zaagsnede, kosten, best, nodes);
                 let s = bins[j].strips.last_mut().unwrap();
                 s.rl += verbruik_lengte(stuk.lengte, s.rl, zaagsnede);
                 bins[j].stukken.pop();
@@ -316,7 +323,7 @@ pub fn optimaliseer_profiel(
                 let oude_rw = bins[j].rw;
                 let oude_strips = bins[j].strips.len();
                 bins[j].start_nieuwe_strip(stuk, zaagsnede);
-                rec(bins, items, i + 1, inkoop, plank_breedte, zaagsnede, kosten, best);
+                rec(bins, items, i + 1, inkoop, plank_breedte, zaagsnede, kosten, best, nodes);
                 bins[j].strips.truncate(oude_strips);
                 bins[j].rw = oude_rw;
                 bins[j].stukken.pop();
@@ -326,15 +333,53 @@ pub fn optimaliseer_profiel(
             if stuk.lengte <= l && stuk.breedte <= plank_breedte {
                 bins.push(Bin::nieuw(l, plank_breedte));
                 bins.last_mut().unwrap().start_nieuwe_strip(stuk, zaagsnede);
-                rec(bins, items, i + 1, inkoop, plank_breedte, zaagsnede, kosten + p, best);
+                rec(bins, items, i + 1, inkoop, plank_breedte, zaagsnede, kosten + p, best, nodes);
                 bins.pop();
             }
         }
     }
 
+    // greedy seed (FFD-achtig) zodat branch & bound direct sterk kan prunen
     let mut bins: Vec<Bin> = Vec::new();
-    let mut best: Option<(f64, Vec<Bin>)> = None;
-    rec(&mut bins, &sortering, 0, inkoop, plank_breedte, zaagsnede, 0.0, &mut best);
+    let mut kosten = 0.0;
+    for stuk in &sortering {
+        let mut geplaatst = false;
+        for j in 0..bins.len() {
+            if bins[j].strip_pas(*stuk, zaagsnede) {
+                bins[j].plaats_in_strip(*stuk, zaagsnede);
+                geplaatst = true;
+                break;
+            }
+            if bins[j].nieuwe_strip_pas(*stuk, zaagsnede) {
+                bins[j].start_nieuwe_strip(*stuk, zaagsnede);
+                geplaatst = true;
+                break;
+            }
+        }
+        if !geplaatst {
+            let mut beste_l = None;
+            let mut beste_p = f64::MAX;
+            for &(l, p) in inkoop {
+                if stuk.lengte <= l && stuk.breedte <= plank_breedte && p < beste_p {
+                    beste_l = Some(l);
+                    beste_p = p;
+                }
+            }
+            if let Some(l) = beste_l {
+                bins.push(Bin::nieuw(l, plank_breedte));
+                bins.last_mut().unwrap().start_nieuwe_strip(*stuk, zaagsnede);
+                kosten += beste_p;
+            }
+        }
+    }
+    let mut best: Option<(f64, Vec<Bin>)> = if bins.is_empty() {
+        None
+    } else {
+        Some((kosten, bins.clone()))
+    };
+    bins.clear();
+    let mut nodes: u64 = 0;
+    rec(&mut bins, &sortering, 0, inkoop, plank_breedte, zaagsnede, 0.0, &mut best, &mut nodes);
     best.map(|(_, bins)| {
         let bakken = bins.iter().map(|b| b.bak()).collect();
         maak_resultaat(bakken, inkoop)

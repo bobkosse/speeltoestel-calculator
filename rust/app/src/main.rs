@@ -19,15 +19,19 @@ fn primary_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
     ui.add(
         egui::Button::new(egui::RichText::new(text).color(egui::Color32::WHITE))
             .fill(ACCENT)
-            .min_size(egui::vec2(0.0, 34.0)),
+            .min_size(egui::vec2(0.0, 32.0)),
     )
 }
 
 fn danger_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
     ui.add(
         egui::Button::new(egui::RichText::new(text).color(DANGER))
-            .min_size(egui::vec2(0.0, 34.0)),
+            .min_size(egui::vec2(0.0, 32.0)),
     )
+}
+
+fn text_field(ui: &mut egui::Ui, text: &mut String, width: f32) -> egui::Response {
+    ui.add_sized(egui::vec2(width, 32.0), egui::TextEdit::singleline(text))
 }
 
 fn card(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
@@ -352,9 +356,7 @@ impl App {
                     let id = self.projecten[i].id.clone();
                     let is_huidig = self.huidig_project.as_deref() == Some(id.as_str());
                     let mut naam = self.projecten[i].naam.clone();
-                    egui::TextEdit::singleline(&mut naam)
-                        .desired_width(320.0)
-                        .ui(ui);
+                    text_field(ui, &mut naam, 320.0);
                     if naam != self.projecten[i].naam {
                         self.projecten[i].naam = naam;
                     }
@@ -414,35 +416,25 @@ impl App {
 
     fn tab_materialen(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.set_width(210.0);
-                ui.add_space(4.0);
-                for (t, label) in [
-                    (MatTab::PerStuk, "Producten per stuk"),
-                    (MatTab::Halffabricaten, "Half-fabricaten"),
-                    (MatTab::Instellingen, "Instellingen"),
-                ] {
-                    let selected = self.mat_tab == t;
-                    let response = ui.add_sized(
-                        egui::vec2(210.0, 38.0),
-                        egui::SelectableLabel::new(selected, egui::RichText::new(label).size(14.0)),
-                    );
-                    if response.clicked() {
-                        self.mat_tab = t;
-                    }
-                    ui.add_space(4.0);
+            for (t, label) in [
+                (MatTab::PerStuk, "Producten per stuk"),
+                (MatTab::Halffabricaten, "Half-fabricaten"),
+                (MatTab::Instellingen, "Instellingen"),
+            ] {
+                let selected = self.mat_tab == t;
+                if ui
+                    .selectable_label(selected, egui::RichText::new(label).size(14.0))
+                    .clicked()
+                {
+                    self.mat_tab = t;
                 }
-            });
-            ui.separator();
-            ui.vertical(|ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    match self.mat_tab {
-                        MatTab::PerStuk => self.mat_per_stuk(ui),
-                        MatTab::Halffabricaten => self.mat_halffabricaten(ui),
-                        MatTab::Instellingen => self.mat_instellingen(ui),
-                    }
-                });
-            });
+            }
+        });
+        ui.separator();
+        egui::ScrollArea::vertical().show(ui, |ui| match self.mat_tab {
+            MatTab::PerStuk => self.mat_per_stuk(ui),
+            MatTab::Halffabricaten => self.mat_halffabricaten(ui),
+            MatTab::Instellingen => self.mat_instellingen(ui),
         });
     }
 
@@ -461,9 +453,7 @@ impl App {
                     .range(0.0..=100.0)
                     .ui(ui);
                 ui.label("Munt:");
-                egui::TextEdit::singleline(&mut self.catalogus.instellingen.munt)
-                    .desired_width(80.0)
-                    .ui(ui);
+                text_field(ui, &mut self.catalogus.instellingen.munt, 80.0);
             });
         });
     }
@@ -480,16 +470,12 @@ impl App {
                 ui.end_row();
                 let mut verwijder: Option<String> = None;
                 for m in self.catalogus.per_stuk.iter_mut() {
-                    egui::TextEdit::singleline(&mut m.naam)
-                        .desired_width(280.0)
-                        .ui(ui);
+                    text_field(ui, &mut m.naam, 280.0);
                     egui::DragValue::new(&mut m.prijs)
                         .speed(0.01)
                         .range(0.0..=100000.0)
                         .ui(ui);
-                    egui::TextEdit::singleline(&mut m.info)
-                        .desired_width(300.0)
-                        .ui(ui);
+                    text_field(ui, &mut m.info, 300.0);
                     if danger_button(ui, "Verwijder").clicked() {
                         verwijder = Some(m.id.clone());
                     }
@@ -551,9 +537,7 @@ impl App {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Houtsoort:");
-                            egui::TextEdit::singleline(&mut self.catalogus.profielen[pi].houtsoort)
-                                .desired_width(180.0)
-                                .ui(ui);
+                            text_field(ui, &mut self.catalogus.profielen[pi].houtsoort, 180.0);
                             ui.label("Dikte (mm):");
                             egui::DragValue::new(&mut self.catalogus.profielen[pi].dikte_mm)
                                 .speed(1.0)
@@ -907,8 +891,9 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.style_mut(|s| {
             s.spacing.slider_width = 150.0;
+            s.spacing.interact_size = egui::vec2(150.0, 32.0);
             s.spacing.item_spacing = egui::vec2(12.0, 8.0);
-            s.spacing.button_padding = egui::vec2(16.0, 9.0);
+            s.spacing.button_padding = egui::vec2(16.0, 6.0);
         });
         self.sidebar(ctx);
         egui::TopBottomPanel::top("topbar")

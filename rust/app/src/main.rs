@@ -53,6 +53,13 @@ fn nieuw_id() -> String {
 }
 
 #[derive(PartialEq, Clone, Copy)]
+enum MatTab {
+    PerStuk,
+    Halffabricaten,
+    Instellingen,
+}
+
+#[derive(PartialEq, Clone, Copy)]
 enum Tab {
     Projecten,
     Materialen,
@@ -78,6 +85,7 @@ struct App {
     bestand_bibliotheek: Option<PathBuf>,
     bestand_projecten: Option<PathBuf>,
     tab: Tab,
+    mat_tab: MatTab,
     status: String,
     nieuw_per_stuk: (String, String, String),
     nieuw_profiel_inkoop: (String, String),
@@ -109,6 +117,7 @@ impl Default for App {
             bestand_bibliotheek: None,
             bestand_projecten: None,
             tab: Tab::Projecten,
+            mat_tab: MatTab::PerStuk,
             status: "Onopgeslagen wijzigingen".to_string(),
             nieuw_per_stuk: (String::new(), String::new(), String::new()),
             nieuw_profiel_inkoop: (String::new(), String::new()),
@@ -404,8 +413,41 @@ impl App {
     }
 
     fn tab_materialen(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(210.0);
+                ui.add_space(4.0);
+                for (t, label) in [
+                    (MatTab::PerStuk, "Producten per stuk"),
+                    (MatTab::Halffabricaten, "Half-fabricaten"),
+                    (MatTab::Instellingen, "Instellingen"),
+                ] {
+                    let selected = self.mat_tab == t;
+                    let response = ui.add_sized(
+                        egui::vec2(210.0, 38.0),
+                        egui::SelectableLabel::new(selected, egui::RichText::new(label).size(14.0)),
+                    );
+                    if response.clicked() {
+                        self.mat_tab = t;
+                    }
+                    ui.add_space(4.0);
+                }
+            });
+            ui.separator();
+            ui.vertical(|ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    match self.mat_tab {
+                        MatTab::PerStuk => self.mat_per_stuk(ui),
+                        MatTab::Halffabricaten => self.mat_halffabricaten(ui),
+                        MatTab::Instellingen => self.mat_instellingen(ui),
+                    }
+                });
+            });
+        });
+    }
+
+    fn mat_instellingen(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
-        egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading("Instellingen");
             ui.horizontal(|ui| {
                 ui.label("Zaagsnede (mm):");
@@ -423,8 +465,11 @@ impl App {
                     .desired_width(80.0)
                     .ui(ui);
             });
-            ui.separator();
+        });
+    }
 
+    fn mat_per_stuk(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
             ui.heading("Producten per stuk");
             ui.label("Schroeven, bouten, etc. — prijs per stuk, exclusief BTW. Deze bibliotheek deel je tussen alle projecten.");
             egui::Grid::new("per_stuk_grid").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
@@ -488,8 +533,11 @@ impl App {
                     }
                 }
             });
-            ui.separator();
+        });
+    }
 
+    fn mat_halffabricaten(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
             ui.heading("Half-fabricaten (zaagdelen)");
             ui.label("Planken, palen, etc. Per profiel meerdere inkooplengtes mogelijk; de app kiest de goedkoopste samenstelling.");
             let mut verwijder_profiel: Option<String> = None;
@@ -595,7 +643,6 @@ impl App {
                     }],
                 });
             }
-        });
         });
     }
 

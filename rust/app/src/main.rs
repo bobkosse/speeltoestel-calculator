@@ -69,6 +69,11 @@ fn datum_vandaag() -> String {
     format!("{:04}-{:02}-{:02}", year, month, rest + 1)
 }
 
+fn fmt_bedrag_munt(munt: &str, x: f64) -> String {
+    let symbool = if munt == "EUR" { "€" } else { munt };
+    format!("{symbool} {:.2}", x)
+}
+
 fn text_field(ui: &mut egui::Ui, text: &mut String, width: f32) -> egui::Response {
     ui.add_sized(egui::vec2(width, 32.0), egui::TextEdit::singleline(text))
 }
@@ -132,7 +137,7 @@ struct App {
     tab: Tab,
     mat_tab: MatTab,
     status: String,
-    nieuw_per_stuk: (String, String, String),
+    nieuw_per_stuk: (String, String, String, String, String),
     nieuw_profiel_inkoop: (String, String),
     nieuwe_project_naam: String,
 }
@@ -166,7 +171,7 @@ impl Default for App {
             tab: Tab::Projecten,
             mat_tab: MatTab::PerStuk,
             status: "Onopgeslagen wijzigingen".to_string(),
-            nieuw_per_stuk: (String::new(), String::new(), String::new()),
+            nieuw_per_stuk: (String::new(), String::new(), String::new(), String::new(), String::new()),
             nieuw_profiel_inkoop: (String::new(), String::new()),
             nieuwe_project_naam: String::new(),
         }
@@ -563,21 +568,36 @@ impl App {
     fn mat_per_stuk(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
             ui.heading("Producten per stuk");
-            ui.label("Schroeven, bouten, etc. — prijs per stuk, exclusief BTW. Deze bibliotheek deel je tussen alle projecten.");
+            ui.label("Schroeven, bouten, etc. Geef per product de inkoopverpakking op (eenheid + aantal + prijs per verpakking); de stukprijs wordt automatisch berekend. Met 'Voorraad' houd je bij hoeveel je op voorraad hebt. Excl. BTW.");
             egui::Grid::new("per_stuk_grid").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
                 ui.label(egui::RichText::new("Naam").strong());
-                ui.label(egui::RichText::new("Prijs/stuk").strong());
+                ui.label(egui::RichText::new("Stukprijs (auto)").strong());
+                ui.label(egui::RichText::new("Eenheid").strong());
+                ui.label(egui::RichText::new("Aantal/eenh.").strong());
+                ui.label(egui::RichText::new("Prijs/eenh.").strong());
+                ui.label(egui::RichText::new("Voorraad").strong());
                 ui.label(egui::RichText::new("Extra info").strong());
                 ui.label("");
                 ui.end_row();
                 let mut verwijder: Option<String> = None;
+                let munt = self.catalogus.instellingen.munt.clone();
                 for m in self.catalogus.per_stuk.iter_mut() {
-                    text_field(ui, &mut m.naam, 280.0);
-                    egui::DragValue::new(&mut m.prijs)
-                        .speed(0.01)
-                        .range(0.0..=100000.0)
+                    text_field(ui, &mut m.naam, 200.0);
+                    ui.label(egui::RichText::new(fmt_bedrag_munt(&munt, m.stukprijs())).weak());
+                    text_field(ui, &mut m.eenheid, 90.0);
+                    egui::DragValue::new(&mut m.aantal_per_eenheid)
+                        .speed(1.0)
+                        .range(0.0..=1000000.0)
                         .ui(ui);
-                    text_field(ui, &mut m.info, 300.0);
+                    egui::DragValue::new(&mut m.prijs_per_eenheid)
+                        .speed(0.5)
+                        .range(0.0..=1000000.0)
+                        .ui(ui);
+                    egui::DragValue::new(&mut m.voorraad)
+                        .speed(1.0)
+                        .range(0.0..=1000000.0)
+                        .ui(ui);
+                    text_field(ui, &mut m.info, 180.0);
                     if danger_button(ui, "Verwijder").clicked() {
                         verwijder = Some(m.id.clone());
                     }
@@ -597,27 +617,45 @@ impl App {
             });
             ui.horizontal(|ui| {
                 egui::TextEdit::singleline(&mut self.nieuw_per_stuk.0)
-                    .desired_width(280.0)
+                    .desired_width(200.0)
                     .hint_text("Naam")
                     .ui(ui);
                 egui::TextEdit::singleline(&mut self.nieuw_per_stuk.1)
-                    .desired_width(110.0)
-                    .hint_text("Prijs/stuk")
+                    .desired_width(90.0)
+                    .hint_text("Eenheid")
                     .ui(ui);
                 egui::TextEdit::singleline(&mut self.nieuw_per_stuk.2)
-                    .desired_width(280.0)
+                    .desired_width(90.0)
+                    .hint_text("Aantal/eenh.")
+                    .ui(ui);
+                egui::TextEdit::singleline(&mut self.nieuw_per_stuk.3)
+                    .desired_width(100.0)
+                    .hint_text("Prijs/eenh.")
+                    .ui(ui);
+                egui::TextEdit::singleline(&mut self.nieuw_per_stuk.4)
+                    .desired_width(180.0)
                     .hint_text("Extra info")
                     .ui(ui);
                 if primary_button(ui, "Toevoegen").clicked() {
                     if !self.nieuw_per_stuk.0.trim().is_empty() {
-                        let prijs = Self::parse_getal(&self.nieuw_per_stuk.1);
+                        let aantal_per_eenheid = Self::parse_getal(&self.nieuw_per_stuk.2);
+                        let prijs_per_eenheid = Self::parse_getal(&self.nieuw_per_stuk.3);
+                        let stukprijs = if aantal_per_eenheid > 0.0 {
+                            prijs_per_eenheid / aantal_per_eenheid
+                        } else {
+                            prijs_per_eenheid
+                        };
                         self.catalogus.per_stuk.push(PerStuk {
                             id: nieuw_id(),
                             naam: self.nieuw_per_stuk.0.trim().to_string(),
-                            prijs,
-                            info: self.nieuw_per_stuk.2.trim().to_string(),
+                            prijs: stukprijs,
+                            info: self.nieuw_per_stuk.4.trim().to_string(),
+                            eenheid: self.nieuw_per_stuk.1.trim().to_string(),
+                            aantal_per_eenheid,
+                            prijs_per_eenheid,
+                            voorraad: 0.0,
                         });
-                        self.nieuw_per_stuk = (String::new(), String::new(), String::new());
+                        self.nieuw_per_stuk = (String::new(), String::new(), String::new(), String::new(), String::new());
                     }
                 }
             });
@@ -907,11 +945,33 @@ impl App {
             }
         }
         for l in &res.per_stuk {
+            let spec = if l.eenheid.is_empty() {
+                format!("per stuk (nodig {})", l.aantal)
+            } else {
+                format!(
+                    "nodig {} · voorraad {} · tekort {} · per {} stuks",
+                    l.aantal,
+                    l.voorraad,
+                    l.tekort,
+                    l.aantal_per_eenheid
+                )
+            };
+            let aantal = if l.eenheid.is_empty() {
+                l.inkoop_aantal.to_string()
+            } else {
+                format!("{} {}", l.inkoop_aantal, l.eenheid)
+            };
+            let prijs = if l.eenheid.is_empty() {
+                self.fmt_bedrag(l.prijs_per_stuk)
+            } else {
+                self.fmt_bedrag(l.prijs_per_eenheid)
+            };
             bom_rows.push_str(&format!(
-                "<tr><td>{}</td><td>per stuk</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
                 html_escape(&l.naam),
-                l.aantal,
-                self.fmt_bedrag(l.prijs_per_stuk),
+                html_escape(&spec),
+                aantal,
+                prijs,
                 self.fmt_bedrag(l.kosten)
             ));
         }
@@ -1066,9 +1126,18 @@ button {{ font-size: 15px; padding: 8px 16px; background: #A0622D; color: #fff; 
                     }
                     for l in &res.per_stuk {
                         ui.label(&l.naam);
-                        ui.label("per stuk");
-                        ui.label(l.aantal.to_string());
-                        ui.label(self.fmt_bedrag(l.prijs_per_stuk));
+                        if l.eenheid.is_empty() {
+                            ui.label(format!("per stuk (nodig {})", l.aantal));
+                            ui.label(l.inkoop_aantal.to_string());
+                            ui.label(self.fmt_bedrag(l.prijs_per_stuk));
+                        } else {
+                            ui.label(format!(
+                                "nodig {} · voorraad {} · tekort {}",
+                                l.aantal, l.voorraad, l.tekort
+                            ));
+                            ui.label(format!("{} {}", l.inkoop_aantal, l.eenheid));
+                            ui.label(self.fmt_bedrag(l.prijs_per_eenheid));
+                        }
                         ui.label(self.fmt_bedrag(l.kosten));
                         ui.end_row();
                     }

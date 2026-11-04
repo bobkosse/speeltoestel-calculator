@@ -101,6 +101,10 @@ mod tests {
                 naam: "Schroef 5x60".into(),
                 prijs: 0.50,
                 info: String::new(),
+                eenheid: String::new(),
+                aantal_per_eenheid: 0.0,
+                prijs_per_eenheid: 0.0,
+                voorraad: 0.0,
             }],
             profielen: vec![Profiel {
                 id: "p1".into(),
@@ -135,6 +139,34 @@ mod tests {
         assert_eq!(res.zaag_resultaten[0].resultaat.as_ref().unwrap().aantal, 2);
         assert_eq!(res.zaag_resultaten[0].kosten, 80.0);
         assert_eq!(res.totaal_excl, 85.0);
+    }
+
+    #[test]
+    fn per_stuk_met_verpakking_en_voorraad() {
+        // doos van 100 stuks à €12,00 → stukprijs €0,12; nodig 24, voorraad 10 → tekort 14 → 1 doos = €12,00
+        let mut catalogus = test_catalogus();
+        catalogus.per_stuk = vec![PerStuk {
+            id: "s1".into(),
+            naam: "Schroef 5x60 (doos)".into(),
+            prijs: 0.0,
+            info: String::new(),
+            eenheid: "doos".into(),
+            aantal_per_eenheid: 100.0,
+            prijs_per_eenheid: 12.0,
+            voorraad: 10.0,
+        }];
+        let project = vec![ProjectLijn::PerStuk {
+            id: "l1".into(),
+            materiaal_id: Some("s1".into()),
+            aantal: 24,
+        }];
+        let res = bereken_project(&catalogus, &project);
+        let l = &res.per_stuk[0];
+        assert!((l.prijs_per_stuk - 0.12).abs() < 1e-9);
+        assert_eq!(l.tekort, 14);
+        assert_eq!(l.inkoop_aantal, 1);
+        assert_eq!(l.kosten, 12.0);
+        assert_eq!(res.totaal_excl, 12.0);
     }
 
     #[test]

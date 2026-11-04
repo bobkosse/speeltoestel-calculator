@@ -269,7 +269,17 @@ pub struct Berekening {
 #[derive(Debug, Clone)]
 pub struct PerStukKosten {
     pub naam: String,
+    /// Benodigd aantal stuks.
     pub aantal: u32,
+    pub voorraad: f64,
+    /// Tekort = benodigd − voorraad (minstens 0).
+    pub tekort: u32,
+    /// Inkoopeenheid (bijv. "doos"); leeg als per stuk ingekocht.
+    pub eenheid: String,
+    pub aantal_per_eenheid: f64,
+    /// Aantal inkoopeenheden dat aangeschaft moet worden.
+    pub inkoop_aantal: u32,
+    pub prijs_per_eenheid: f64,
     pub prijs_per_stuk: f64,
     pub kosten: f64,
 }
@@ -299,11 +309,29 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
                     .as_ref()
                     .and_then(|id| catalogus.per_stuk.iter().find(|m| &m.id == id))
                 {
+                    let stukprijs = m.stukprijs();
+                    let tekort = aantal.saturating_sub(m.voorraad as u32);
+                    let inkoop_aantal = if m.aantal_per_eenheid > 0.0 {
+                        ((tekort as f64) / m.aantal_per_eenheid).ceil() as u32
+                    } else {
+                        tekort
+                    };
+                    let kosten = if m.aantal_per_eenheid > 0.0 {
+                        rond2(inkoop_aantal as f64 * m.prijs_per_eenheid)
+                    } else {
+                        rond2(tekort as f64 * stukprijs)
+                    };
                     per_stuk.push(PerStukKosten {
                         naam: m.naam.clone(),
                         aantal: *aantal,
-                        prijs_per_stuk: m.prijs,
-                        kosten: rond2(*aantal as f64 * m.prijs),
+                        voorraad: m.voorraad,
+                        tekort,
+                        eenheid: m.eenheid.clone(),
+                        aantal_per_eenheid: m.aantal_per_eenheid,
+                        inkoop_aantal,
+                        prijs_per_eenheid: m.prijs_per_eenheid,
+                        prijs_per_stuk: stukprijs,
+                        kosten,
                     });
                 }
             }

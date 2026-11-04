@@ -1,7 +1,9 @@
 # Speeltoestel Calculator
 
-Desktop-app (Electron) voor het snel maken van kostprijscalculaties voor houten
-speeltoestellen. Prijzen worden **exclusief BTW** ingevoerd; de app toont daarnaast
+Desktop-app voor het snel maken van kostprijscalculaties voor houten speeltoestellen.
+
+- **`rust/`** — native versie in Rust + egui, compileert tot één executable (~20 MB). Zie [rust/README.md](rust/README.md). Aanbevolen.
+- **deze root** — Electron-versie (Node.js + npm). Alleen hier als je de web-UI wilt draaien. Prijzen worden **exclusief BTW** ingevoerd; de app toont daarnaast
 het totaal inclusief BTW.
 
 ## Werking

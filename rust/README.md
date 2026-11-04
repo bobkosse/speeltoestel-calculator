@@ -40,13 +40,15 @@ cargo build --release      # executable staat in target/release/speeltoestel-cal
 
 Op macOS kun je de binary direct als app gebruiken; met `cargo install --path app` installeer je hem in `~/.cargo/bin`.
 
+In de PDF/print staat onderaan elke pagina de footer: “Afgedrukt met Speelgoed Calculator van Robuust Buitenspelen”.
+
 ### macOS .app-bundel (aanbevolen — geen terminal bij dubbelklikken in Finder)
 
 ```bash
 ./make_app_bundle.sh
 ```
 
-Dit bouwt `target/release/Speeltoestel Calculator.app` (en een `.dmg`). Dubbelklik de .app in Finder: alleen de GUI opent. Eventueel icoon: plaats PNG's in `app/assets/AppIcon.iconset/` (16–512 px), dan wordt automatisch `AppIcon.icns` meegenomen. Bij Gatekeeper-melding: rechtermuisknop → Open.
+Dit bouwt `target/release/Speeltoestel Calculator.app` (en een `.dmg`). Dubbelklik de .app in Finder: alleen de GUI opent. Het favicon van www.robuustbuitenspelen.nl zit als icoon in `app/assets/AppIcon.iconset/` en wordt automatisch als `AppIcon.icns` in de .app meegenomen. Bij Gatekeeper-melding: rechtermuisknop → Open.
 
 ## Testen
 

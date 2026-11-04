@@ -953,15 +953,22 @@ impl App {
             y: f64,
             zwart: Color,
             accent: Color,
+            grijs: Color,
             font: FontId,
             font_bold: FontId,
         }
         impl Bouwer {
             fn new_page(&mut self, pages: &mut Vec<PdfPage>) {
                 if !self.ops.is_empty() {
+                    self.footer();
                     pages.push(PdfPage::new(Mm(PAGE_W as f32), Mm(PAGE_H as f32), std::mem::take(&mut self.ops)));
                 }
                 self.y = MARGIN;
+            }
+            fn footer(&mut self) {
+                let tekst = "Afgedrukt met Speelgoed Calculator van Robuust Buitenspelen";
+                self.lijn(MARGIN, PAGE_H - 12.0, PAGE_W - MARGIN, PAGE_H - 12.0);
+                self.tekst_op(tekst, (PAGE_W - tekst.len() as f64 * 3.9) / 2.0, PAGE_H - 10.0, 7.5, false, &self.grijs.clone());
             }
             fn ensure(&mut self, h: f64, pages: &mut Vec<PdfPage>) {
                 if self.y + h > PAGE_H - MARGIN {
@@ -969,10 +976,14 @@ impl App {
                 }
             }
             fn tekst(&mut self, s: &str, x: f64, size: f64, bold: bool, kleur: &Color) {
+                let y = self.y;
+                self.tekst_op(s, x, y, size, bold, kleur);
+            }
+            fn tekst_op(&mut self, s: &str, x: f64, y: f64, size: f64, bold: bool, kleur: &Color) {
                 let font = if bold { self.font_bold.clone() } else { self.font.clone() };
                 self.ops.push(Op::StartTextSection);
                 self.ops.push(Op::SetTextCursor {
-                    pos: Point::new(Mm(x as f32), Mm((PAGE_H - self.y - size * 0.35) as f32)),
+                    pos: Point::new(Mm(x as f32), Mm((PAGE_H - y - size * 0.35) as f32)),
                 });
                 self.ops.push(Op::SetFontSize { size: Pt(size as f32), font: font.clone() });
                 self.ops.push(Op::SetFillColor { col: kleur.clone() });
@@ -1047,7 +1058,7 @@ impl App {
         }
 
         let mut pages: Vec<PdfPage> = Vec::new();
-        let mut b = Bouwer { ops: Vec::new(), y: MARGIN, zwart: zwart.clone(), accent: accent.clone(), font: font.clone(), font_bold: font_bold.clone() };
+        let mut b = Bouwer { ops: Vec::new(), y: MARGIN, zwart: zwart.clone(), accent: accent.clone(), grijs: grijs.clone(), font: font.clone(), font_bold: font_bold.clone() };
 
         b.tekst(&format!("Bill of Materials — {project_naam}"), MARGIN, 16.0, true, &accent);
         b.y += 10.0;
@@ -1497,5 +1508,7 @@ mod tests {
         // euroteken (U+20AC) moet in de tekststream zitten (als hex 20AC)
         let pdf_str = String::from_utf8_lossy(&bytes);
         assert!(pdf_str.contains("20AC"), "euroteken ontbreekt in PDF");
+        // content stream bevat tekst-operaties (footer e.d. — glyphs via subset font)
+        assert!(pdf_str.contains("Tj"), "geen tekst in PDF");
     }
 }

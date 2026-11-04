@@ -1079,16 +1079,24 @@ impl App {
             }
         }
         for l in &res.per_stuk {
-            let (spec, aantal, prijs) = if l.eenheid.is_empty() {
-                (format!("per stuk (nodig {})", l.aantal), l.inkoop_aantal.to_string(), self.fmt_bedrag(l.prijs_per_stuk))
+            let spec = if l.eenheid.is_empty() {
+                "per stuk".to_string()
             } else {
-                (
-                    format!("nodig {} stuks · per {} {}", l.aantal, l.aantal_per_eenheid, l.eenheid),
-                    format!("{} {}", l.inkoop_aantal, l.eenheid),
+                format!(
+                    "per {} {} à {} → {} verp.",
+                    l.aantal_per_eenheid,
+                    l.eenheid,
                     self.fmt_bedrag(l.prijs_per_eenheid),
+                    l.inkoop_aantal
                 )
             };
-            bom_rows.push(vec![l.naam.clone(), spec, aantal, prijs, self.fmt_bedrag(l.kosten)]);
+            bom_rows.push(vec![
+                l.naam.clone(),
+                spec,
+                l.aantal.to_string(),
+                self.fmt_bedrag(l.prijs_per_stuk),
+                self.fmt_bedrag(l.kosten),
+            ]);
         }
         let totaal_row = vec![
             "Totaal (excl. BTW)".to_string(),
@@ -1309,17 +1317,18 @@ impl App {
                     for l in &res.per_stuk {
                         ui.label(&l.naam);
                         if l.eenheid.is_empty() {
-                            ui.label(format!("per stuk (nodig {})", l.aantal));
-                            ui.label(l.inkoop_aantal.to_string());
-                            ui.label(self.fmt_bedrag(l.prijs_per_stuk));
+                            ui.label("per stuk".to_string());
                         } else {
                             ui.label(format!(
-                                "nodig {} stuks · per {} {}",
-                                l.aantal, l.aantal_per_eenheid, l.eenheid
+                                "per {} {} à {} → {} verp.",
+                                l.aantal_per_eenheid,
+                                l.eenheid,
+                                self.fmt_bedrag(l.prijs_per_eenheid),
+                                l.inkoop_aantal
                             ));
-                            ui.label(format!("{} {}", l.inkoop_aantal, l.eenheid));
-                            ui.label(self.fmt_bedrag(l.prijs_per_eenheid));
                         }
+                        ui.label(l.aantal.to_string());
+                        ui.label(self.fmt_bedrag(l.prijs_per_stuk));
                         ui.label(self.fmt_bedrag(l.kosten));
                         ui.end_row();
                     }

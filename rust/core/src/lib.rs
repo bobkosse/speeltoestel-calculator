@@ -153,8 +153,8 @@ mod tests {
     }
 
     #[test]
-    fn per_stuk_met_verpakking() {
-        // doos van 100 stuks à €12,00 → stukprijs €0,12; nodig 24 → 1 doos = €12,00
+    fn per_stuk_met_verpakking_rekent_met_stukprijs() {
+        // doos van 100 stuks à €12,00 → stukprijs €0,12; nodig 24 → kosten 24 × €0,12 = €2,88 (1 doos nodig)
         let mut catalogus = test_catalogus();
         catalogus.per_stuk = vec![PerStuk {
             id: "s1".into(),
@@ -175,8 +175,8 @@ mod tests {
         assert!((l.prijs_per_stuk - 0.12).abs() < 1e-9);
         assert_eq!(l.aantal, 24);
         assert_eq!(l.inkoop_aantal, 1);
-        assert_eq!(l.kosten, 12.0);
-        assert_eq!(res.totaal_excl, 12.0);
+        assert_eq!(l.kosten, 2.88);
+        assert_eq!(res.totaal_excl, 2.88);
     }
 
     #[test]

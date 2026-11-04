@@ -334,11 +334,7 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
                     } else {
                         *aantal
                     };
-                    let kosten = if m.aantal_per_eenheid > 0.0 {
-                        rond2(inkoop_aantal as f64 * m.prijs_per_eenheid)
-                    } else {
-                        rond2(*aantal as f64 * stukprijs)
-                    };
+                    let kosten = rond2(*aantal as f64 * stukprijs);
                     per_stuk.push(PerStukKosten {
                         naam: m.naam.clone(),
                         aantal: *aantal,

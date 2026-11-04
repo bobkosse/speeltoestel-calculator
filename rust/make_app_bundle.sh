@@ -53,10 +53,12 @@ PLIST
 
 echo -n "APPL????" > "$APP/Contents/PkgInfo"
 
-# Optioneel app-icoon: leg app/assets/AppIcon.iconset (PNG's 16-512px) neer,
-# dan wordt met iconutil automatisch AppIcon.icns gemaakt.
-if command -v iconutil >/dev/null 2>&1 && [ -d "app/assets/AppIcon.iconset" ]; then
-  echo "==> icoon genereren"
+# App-icoon: gebruik het prebuilt AppIcon.icns uit de repo; val terug op iconutil
+# met de iconset als het icns ontbreekt.
+if [ -f "app/assets/AppIcon.icns" ]; then
+  cp "app/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+elif command -v iconutil >/dev/null 2>&1 && [ -d "app/assets/AppIcon.iconset" ]; then
+  echo "==> icoon genereren uit iconset"
   iconutil -c icns "app/assets/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 fi
 

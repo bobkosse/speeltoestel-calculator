@@ -850,12 +850,12 @@ impl App {
                                     .profielen
                                     .iter()
                                     .find(|p| Some(&p.id) == profiel_id.as_ref())
-                                    .map(|p| p.naam())
+                                    .map(|p| p.houtsoort.clone())
                                     .unwrap_or_else(|| "– kies –".to_string()),
                             )
                             .show_ui(ui, |ui| {
                                 for p in &catalogus.profielen {
-                                    ui.selectable_value(&mut gekozen, p.id.clone(), p.naam());
+                                    ui.selectable_value(&mut gekozen, p.id.clone(), p.houtsoort.clone());
                                 }
                             });
                         if gekozen != profiel_id.as_deref().unwrap_or("")

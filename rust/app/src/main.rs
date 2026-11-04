@@ -842,26 +842,32 @@ impl App {
                 });
             });
             card(ui, |ui| {
-                ui.heading("Reststukken (ter controle)");
-                let mut heeft_rest = false;
-                for zr in &res.zaag_resultaten {
-                    if let Some(r) = &zr.resultaat {
-                        for (i, bak) in r.bakken.iter().enumerate() {
-                            heeft_rest = true;
-                            let stukken: Vec<String> =
-                                bak.stukken.iter().map(|s| format!("{s} mm")).collect();
-                            ui.label(format!(
-                                "{} — plank {} ({} mm): {} → reststuk {} mm",
-                                zr.profiel.naam(),
-                                i + 1,
-                                bak.lengte,
-                                stukken.join(" + "),
-                                bak.rest
-                            ));
+                ui.heading("Zaagplan");
+                ui.label("Per ingekochte plank zie je welke lengtes je eruit zaagt (zaagsnede {} mm per zaagdeel zit al in de rest verrekend).", res.zaagsnede_mm);
+                ui.add_space(4.0);
+                let mut heeft_plan = false;
+                egui::Grid::new("zaagplan").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
+                    ui.label(egui::RichText::new("Profiel").strong());
+                    ui.label(egui::RichText::new("Plank").strong());
+                    ui.label(egui::RichText::new("Te zagen").strong());
+                    ui.label(egui::RichText::new("Reststuk").strong());
+                    ui.end_row();
+                    for zr in &res.zaag_resultaten {
+                        if let Some(r) = &zr.resultaat {
+                            for (i, bak) in r.bakken.iter().enumerate() {
+                                heeft_plan = true;
+                                let stukken: Vec<String> =
+                                    bak.stukken.iter().map(|s| format!("{s} mm")).collect();
+                                ui.label(zr.profiel.naam());
+                                ui.label(format!("{} ({} mm)", i + 1, bak.lengte));
+                                ui.label(stukken.join(" + "));
+                                ui.label(format!("{} mm", bak.rest));
+                                ui.end_row();
+                            }
                         }
                     }
-                }
-                if !heeft_rest {
+                });
+                if !heeft_plan {
                     ui.label("Geen zaagdelen in dit project.");
                 }
             });

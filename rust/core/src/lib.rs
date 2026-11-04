@@ -41,7 +41,7 @@ mod tests {
     #[test]
     fn goedkoopste_lengte_2x900() {
         let res = optimaliseer_profiel(&[900, 900], &[(1000, 10.0), (2000, 25.0)], 3).unwrap();
-        assert_eq!(res.lengte_mm, 1000);
+        assert_eq!(res.per_lengte, vec![(1000, 10.0, 2, 20.0)]);
         assert_eq!(res.aantal, 2);
         assert_eq!(res.kosten, 20.0);
     }
@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn langere_plank_wint_als_delen_samen_passen() {
         let res = optimaliseer_profiel(&[900, 900], &[(1000, 12.0), (2000, 20.0)], 3).unwrap();
-        assert_eq!(res.lengte_mm, 2000);
+        assert_eq!(res.per_lengte, vec![(2000, 20.0, 1, 20.0)]);
         assert_eq!(res.aantal, 1);
         assert_eq!(res.kosten, 20.0);
     }
@@ -58,9 +58,20 @@ mod tests {
     fn zaagsnede_telt_mee_bij_lengtekeuze() {
         // 1000 mm stuk past niet in 1000 mm plank (1003 > 1000), 2100 mm wel (2006 <= 2100)
         let res = optimaliseer_profiel(&[1000, 1000], &[(1000, 12.0), (2100, 22.0)], 3).unwrap();
-        assert_eq!(res.lengte_mm, 2100);
-        assert_eq!(res.aantal, 1);
+        assert_eq!(res.per_lengte, vec![(2100, 22.0, 1, 22.0)]);
         assert_eq!(res.kosten, 22.0);
+    }
+
+    #[test]
+    fn gemengde_lengtes_winnen_als_dat_goedkoper_is() {
+        // [2100, 1000, 1000, 1000] met 2000@48.50 en 2500@55, zaagsnede 3:
+        // 3 x 2500 = 165,00, maar 2 x 2500 (2100; 1000+1000) + 1 x 2000 (1000) = 158,50
+        let res = optimaliseer_profiel(&[2100, 1000, 1000, 1000], &[(2000, 48.50), (2500, 55.0)], 3).unwrap();
+        assert_eq!(res.kosten, 158.50);
+        assert_eq!(res.aantal, 3);
+        let mut per_lengte = res.per_lengte.clone();
+        per_lengte.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(per_lengte, vec![(2000, 48.50, 1, 48.50), (2500, 55.0, 2, 110.0)]);
     }
 
     #[test]

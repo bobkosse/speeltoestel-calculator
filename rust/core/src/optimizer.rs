@@ -4,6 +4,7 @@ const FFD_LIMIET: usize = 40;
 
 #[derive(Debug, Clone)]
 pub struct Bak {
+    pub lengte: i64,
     pub stukken: Vec<i64>,
     pub rest: i64,
 }
@@ -30,6 +31,7 @@ pub fn pack_ffd(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Vec<Bak> 
         }
         if !geplaatst {
             bakken.push(Bak {
+                lengte: stock_lengte,
                 stukken: vec![item],
                 rest: stock_lengte - item - zaagsnede,
             });
@@ -85,6 +87,7 @@ pub fn pack_optimaal(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Opti
             }
         }
         staat.bakken.push(Bak {
+            lengte: stock_lengte,
             stukken: vec![items[i]],
             rest: stock_lengte - items[i] - zaagsnede,
         });
@@ -102,46 +105,153 @@ pub fn pack_optimaal(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Opti
 
 #[derive(Debug, Clone)]
 pub struct ProfielResultaat {
-    pub lengte_mm: i64,
-    pub prijs_per_stuk: f64,
+    /// (lengte_mm, prijs_per_stuk, aantal, bedrag) per ingekochte lengte
+    pub per_lengte: Vec<(i64, f64, usize, f64)>,
     pub aantal: usize,
     pub bakken: Vec<Bak>,
     pub kosten: f64,
     pub afval: i64,
 }
 
-/// Kies de goedkoopste inkooplengte voor een set zaagdelen.
+fn maak_resultaat(bakken: Vec<Bak>, inkoop: &[(i64, f64)]) -> ProfielResultaat {
+    let prijs_per_lengte = |l: i64| inkoop.iter().find(|(sl, _)| *sl == l).map(|(_, p)| *p).unwrap_or(0.0);
+    let mut per_lengte: Vec<(i64, f64, usize, f64)> = Vec::new();
+    for bak in &bakken {
+        if let Some(e) = per_lengte.iter_mut().find(|(l, _, _, _)| *l == bak.lengte) {
+            e.2 += 1;
+            e.3 = e.2 as f64 * e.1;
+        } else {
+            let p = prijs_per_lengte(bak.lengte);
+            per_lengte.push((bak.lengte, p, 1, p));
+        }
+    }
+    let kosten: f64 = per_lengte.iter().map(|(_, _, _, b)| *b).sum();
+    let afval = bakken.iter().map(|b| b.rest).sum();
+    ProfielResultaat {
+        per_lengte,
+        aantal: bakken.len(),
+        bakken,
+        kosten,
+        afval,
+    }
+}
+
+/// Kies de goedkoopste samenstelling van inkooplengtes (gemengd mogelijk) voor een set zaagdelen.
 pub fn optimaliseer_profiel(
     lengtes: &[i64],
     inkoop: &[(i64, f64)],
     zaagsnede: i64,
 ) -> Option<ProfielResultaat> {
-    let mut beste: Option<ProfielResultaat> = None;
-    for &(lengte_mm, prijs) in inkoop {
-        let Some(bakken) = pack_optimaal(lengtes, lengte_mm, zaagsnede) else {
-            continue;
-        };
-        let kosten = bakken.len() as f64 * prijs;
-        let afval: i64 = bakken.iter().map(|b| b.rest).sum();
-        let is_beter = match &beste {
-            None => true,
-            Some(b) => {
-                kosten < b.kosten - 1e-9
-                    || ((kosten - b.kosten).abs() <= 1e-9 && afval < b.afval)
+    if inkoop.is_empty() {
+        return None;
+    }
+    let mut items: Vec<i64> = lengtes.to_vec();
+    items.sort_by(|a, b| b.cmp(a));
+    if items
+        .iter()
+        .any(|&l| !inkoop.iter().any(|&(sl, _)| l + zaagsnede <= sl))
+    {
+        return None;
+    }
+    if items.len() > FFD_LIMIET {
+        // fallback voor grote aantallen: alleen uniforme lengtes evalueren
+        let mut beste: Option<ProfielResultaat> = None;
+        for &(l, p) in inkoop {
+            let Some(bakken) = pack_optimaal(lengtes, l, zaagsnede) else {
+                continue;
+            };
+            let kosten = bakken.len() as f64 * p;
+            let afval: i64 = bakken.iter().map(|b| b.rest).sum();
+            let is_beter = match &beste {
+                None => true,
+                Some(b) => {
+                    kosten < b.kosten - 1e-9
+                        || ((kosten - b.kosten).abs() <= 1e-9 && afval < b.afval)
+                }
+            };
+            if is_beter {
+                beste = Some(ProfielResultaat {
+                    per_lengte: vec![(l, p, bakken.len(), kosten)],
+                    aantal: bakken.len(),
+                    bakken,
+                    kosten,
+                    afval,
+                });
             }
-        };
-        if is_beter {
-            beste = Some(ProfielResultaat {
-                lengte_mm,
-                prijs_per_stuk: prijs,
-                aantal: bakken.len(),
-                bakken,
-                kosten,
-                afval,
-            });
+        }
+        return beste;
+    }
+
+    // exacte branch & bound over alle inkooplengtes (gemengde samenstelling mogelijk)
+    #[derive(Clone)]
+    struct Bin {
+        lengte: i64,
+        rest: i64,
+        stukken: Vec<i64>,
+    }
+
+    fn rec(
+        bins: &mut Vec<Bin>,
+        items: &[i64],
+        i: usize,
+        inkoop: &[(i64, f64)],
+        zaagsnede: i64,
+        kosten: f64,
+        best: &mut Option<(f64, Vec<Bin>)>,
+    ) {
+        if let Some((bc, _)) = best {
+            if kosten >= *bc - 1e-9 {
+                return;
+            }
+        }
+        if i == items.len() {
+            if best.as_ref().map_or(true, |(bc, _)| kosten < *bc - 1e-9) {
+                *best = Some((kosten, bins.clone()));
+            }
+            return;
+        }
+        let mut geprobeerd: Vec<(i64, i64)> = Vec::new();
+        for j in 0..bins.len() {
+            let sleutel = (bins[j].rest, bins[j].lengte);
+            if geprobeerd.contains(&sleutel) {
+                continue;
+            }
+            if items[i] + zaagsnede <= bins[j].rest {
+                geprobeerd.push(sleutel);
+                bins[j].stukken.push(items[i]);
+                bins[j].rest -= items[i] + zaagsnede;
+                rec(bins, items, i + 1, inkoop, zaagsnede, kosten, best);
+                bins[j].rest += items[i] + zaagsnede;
+                bins[j].stukken.pop();
+            }
+        }
+        for &(l, p) in inkoop {
+            if items[i] + zaagsnede <= l {
+                bins.push(Bin {
+                    lengte: l,
+                    rest: l - items[i] - zaagsnede,
+                    stukken: vec![items[i]],
+                });
+                rec(bins, items, i + 1, inkoop, zaagsnede, kosten + p, best);
+                bins.pop();
+            }
         }
     }
-    beste
+
+    let mut bins: Vec<Bin> = Vec::new();
+    let mut best: Option<(f64, Vec<Bin>)> = None;
+    rec(&mut bins, &items, 0, inkoop, zaagsnede, 0.0, &mut best);
+    best.map(|(_, bins)| {
+        let bakken = bins
+            .into_iter()
+            .map(|b| Bak {
+                lengte: b.lengte,
+                stukken: b.stukken,
+                rest: b.rest,
+            })
+            .collect();
+        maak_resultaat(bakken, inkoop)
+    })
 }
 
 pub fn rond2(x: f64) -> f64 {

@@ -803,11 +803,14 @@ impl App {
                     for zr in &res.zaag_resultaten {
                         match &zr.resultaat {
                             Some(r) => {
-                                ui.label(zr.profiel.naam());
-                                ui.label(format!("{} mm", r.lengte_mm));
-                                ui.label(r.aantal.to_string());
-                                ui.label(self.fmt_bedrag(r.prijs_per_stuk));
-                                ui.label(self.fmt_bedrag(zr.kosten));
+                                for (lengte, prijs, aantal, bedrag) in &r.per_lengte {
+                                    ui.label(zr.profiel.naam());
+                                    ui.label(format!("{lengte} mm"));
+                                    ui.label(aantal.to_string());
+                                    ui.label(self.fmt_bedrag(*prijs));
+                                    ui.label(self.fmt_bedrag(*bedrag));
+                                    ui.end_row();
+                                }
                             }
                             None => {
                                 ui.label(zr.profiel.naam());
@@ -818,9 +821,9 @@ impl App {
                                 ui.label("");
                                 ui.label("");
                                 ui.label("");
+                                ui.end_row();
                             }
                         }
-                        ui.end_row();
                     }
                     for l in &res.per_stuk {
                         ui.label(&l.naam);
@@ -851,7 +854,7 @@ impl App {
                                 "{} — plank {} ({} mm): {} → reststuk {} mm",
                                 zr.profiel.naam(),
                                 i + 1,
-                                r.lengte_mm,
+                                bak.lengte,
                                 stukken.join(" + "),
                                 bak.rest
                             ));

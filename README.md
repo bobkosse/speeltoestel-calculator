@@ -1,107 +1,74 @@
-# Speeltoestel Calculator
+# Speeltoestel Calculator — Rust (egui)
 
-Desktop-app voor het snel maken van kostprijscalculaties voor houten speeltoestellen.
+Native desktop-app in Rust met [egui](https://egui.rs), compileert tot één executable (~20 MB)
+of een macOS .app-bundel.
 
-- **`rust/`** — native versie in Rust + egui, compileert tot één executable (~20 MB). Zie [rust/README.md](rust/README.md). Aanbevolen.
-- **deze root** — Electron-versie (Node.js + npm). Alleen hier als je de web-UI wilt draaien. Prijzen worden **exclusief BTW** ingevoerd; de app toont daarnaast
-het totaal inclusief BTW.
+De zaag- en kostenlogica zit in de aparte crate `core` (`speeltoestel-core`), los van de UI.
 
 ## Werking
 
-- **Materialen tab**
-  - *Producten per stuk*: schroeven, bouten, etc. — prijs per stuk plus vrije extra info
-    (bijv. diameter en lengte).
-  - *Half-fabricaten*: profielen zoals planken (houtsoort, dikte, breedte) of palen.
-    Per profiel geef je één of meer **inkooplengtes** op met prijs per stuk.
-  - *Instellingen*: zaagsnede in mm (standaard 3 mm) en BTW-percentage.
-- **Project tab**: voeg benodigde onderdelen toe — per stuk (materiaal + aantal) of
-  zaagdeel (profiel + gewenste lengte in mm + aantal).
-- **Calculatie tab**: de app berekent automatisch de **goedkoopste inkoop**.
-  Dabei wordt rekening gehouden met de zaagsnede: voor n delen uit één plank zijn
-  n−1 zaagsnedes nodig (2 × 100 mm kost dus 203 mm, geen 200 mm). Als je per profiel
-  meerdere lengtes hebt opgegeven (bijv. 1000 mm en 2000 mm), kiest de app de
-  voordeligste samenstelling. Per profiel zie je ook het zaagplan: welke delen uit
-  welke ingekochte plank komen en hoeveel restafval dat oplevert.
+De navigatie zit in de **linker zijbalk** (Projecten · Materialen · Project · Calculatie).
 
-## Installeren en starten
+- **Projecten** — overzicht van alle projecten in één bestand (`projecten.json`): per project
+  zie je het aantal onderdelen en het berekende totaal excl. BTW. Hier voeg je projecten toe,
+  hernoem je ze, open je ze (om te bewerken in het tabblad Project) of verwijder je ze.
+- **Materialen** — de gedeelde materialenbibliotheek: producten per stuk (schroeven, bouten:
+  prijs/stuk + extra info) en half-fabricaten (profielen met houtsoort, dikte, breedte en één
+  of meer inkooplengtes met prijs). Instellingen: zaagsnede in mm (standaard 3). Alle prijzen zijn exclusief BTW.
+  Wordt opgeslagen als `materialen.json` — één bestand voor alle projecten.
+- **Project** — de benodigde onderdelen van het geopende project: per stuk (materiaal + aantal)
+  of zaagdeel (profiel + lengte in mm + breedte in mm + aantal).
+- **Calculatie** — automatisch de goedkoopste inkoop (gemengde lengtes mogelijk), mét zaagsnede:
+  een gezaagd deel kost lengte + zaagsnede (een stuk van 1000 mm uit een 2000 mm plank laat 997 mm
+  rest; een deel met exact de planklengte kost geen zaagsnede). Een plank kan ook over de lengte
+  geript worden voor smallere breedtes. Toont een Bill of Materials (aanschaf + prijzen), een
+  zaagplan per plank en is direct af te drukken als PDF (met printerkeuze) of op te slaan als PDF.
+- **Fool-proof opslaan** — bij de eerste start kies je een **werkmap**. Daarin staan
+  `materialen.json` en `projecten.json`. De werkmap wordt onthouden (per gebruiker, in de
+  app-instellingen) en bij elke start automatisch geladen. **Elke wijziging wordt direct
+  automatisch weggeschreven** en bij het afsluiten van de app nogmaals geforceerd opgeslagen.
+  Met *Werkmap wijzigen…* kun je de map achteraf aanpassen.
 
-Vereist: [Node.js](https://nodejs.org) (versie 18 of hoger).
+## Bouwen en draaien
+
+Vereist: [Rust](https://rustup.rs) (stable).
 
 ```bash
-npm install
-npm start
+cargo run --release        # direct draaien
+cargo build --release      # executable staat in target/release/speeltoestel-calculator
 ```
+
+Op macOS kun je de binary direct als app gebruiken; met `cargo install --path app` installeer je hem in `~/.cargo/bin`.
+
+In de PDF/print staat onderaan elke pagina de footer: “Afgedrukt met Speelgoed Calculator van Robuust Buitenspelen”.
+
+### macOS .app-bundel (aanbevolen — geen terminal bij dubbelklikken in Finder)
+
+```bash
+./make_app_bundle.sh
+```
+
+Dit bouwt `target/release/Speeltoestel Calculator.app` (en een `.dmg`). Dubbelklik de .app in Finder: alleen de GUI opent.
+
+**Installeren in je Apps-map (/Applications):**
+
+```bash
+./make_app_bundle.sh --install
+```
+
+Dan staat de app vast in `/Applications` (bij fehlende rechten krijg je de macOS admin-dialoog). Het favicon van www.robuustbuitenspelen.nl zit als icoon in `app/assets/AppIcon.iconset/` en wordt automatisch als `AppIcon.icns` in de .app meegenomen. Bij Gatekeeper-melding: rechtermuisknop → Open.
 
 ## Testen
 
-De zaag- en kostenlogica heeft unit tests:
-
 ```bash
-npm test
+cargo test
 ```
 
-## Troubleshooting
+## Structuur
 
-**`Error: Electron failed to install correctly` na `npm start`**
-
-Het Electron-binary is dan niet (volledig) gedownload. Los dit op met:
-
-```bash
-rm -rf node_modules/electron
-npm install
-node node_modules/electron/install.js
+```
+core/    datamodel (serde) + zaagoptimalisatie + tests
+app/     egui-interface (main.rs) + assets (icoon, fonts)
 ```
 
-Controleer daarna:
-
-```bash
-cat node_modules/electron/path.txt        # moet "dist/Electron.app" (macOS) bevatten
-ls node_modules/electron/dist/
-```
-
-Op macOS kan Gatekeeper het binary blokkeren; verwijder de quarantine-flag:
-
-```bash
-xattr -dr com.apple.quarantine node_modules/electron/dist/Electron.app
-```
-
-Daarna opnieuw:
-
-```bash
-npm start
-```
-
-Werkt het nog steeds niet (bijv. achter een strikte proxy)? Installeer met scripts aan:
-
-```bash
-npm install --include=dev
-```
-
-## Opslag
-
-Projecten worden opgeslagen als **JSON-bestand** via Bestand → Openen… / Opslaan /
-Opslaan als… (ook met de sneltoetsen Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S).
-
-## Bestandsformaat (JSON)
-
-```json
-{
-  "versie": 1,
-  "instellingen": { "zaagsnede_mm": 3, "btw_pct": 21, "munt": "EUR" },
-  "per_stuk": [
-    { "id": "s1", "naam": "Schroef RVS 5 x 60 mm", "prijs": 0.12, "info": "diameter 5 mm, lengte 60 mm" }
-  ],
-  "profielen": [
-    {
-      "id": "p1", "houtsoort": "Robinia", "dikte_mm": 45, "breedte_mm": 120,
-      "inkoop": [{ "lengte_mm": 2000, "prijs": 48.50 }]
-    }
-  ],
-  "project": [
-    { "id": "l1", "type": "zaagdeel", "profiel_id": "p1", "lengte_mm": 1000, "aantal": 2 },
-    { "id": "l2", "type": "per_stuk", "materiaal_id": "s1", "aantal": 24 }
-  ]
-}
-```
-
-`type` in `project` is `"per_stuk"` of `"zaagdeel"`.
+Bestandsformaten: `Catalogus` (materialenbibliotheek) en `ProjectData` (project), zie `core/src/model.rs`.

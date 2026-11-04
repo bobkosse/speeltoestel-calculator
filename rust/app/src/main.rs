@@ -843,7 +843,10 @@ impl App {
             });
             card(ui, |ui| {
                 ui.heading("Zaagplan");
-                ui.label("Per ingekochte plank zie je welke lengtes je eruit zaagt (zaagsnede {} mm per zaagdeel zit al in de rest verrekend).", res.zaagsnede_mm);
+                ui.label(format!(
+                    "Per ingekochte plank zie je welke lengtes je eruit zaagt (zaagsnede {} mm per zaagdeel zit al in de rest verrekend).",
+                    res.zaagsnede_mm
+                ));
                 ui.add_space(4.0);
                 let mut heeft_plan = false;
                 egui::Grid::new("zaagplan").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {

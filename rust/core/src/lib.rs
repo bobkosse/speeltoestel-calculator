@@ -34,6 +34,18 @@ mod tests {
     }
 
     #[test]
+    fn exacte_lengte_past_zonder_zaagsnede() {
+        // nodig 2000 mm, plank 2000 mm: exacte pasvorm, geen zaagsnede, rest 0
+        let bakken = pack_optimaal(&[2000], 2000, 3).unwrap();
+        assert_eq!(bakken.len(), 1);
+        assert_eq!(bakken[0].rest, 0);
+        // en in de inkoopkeuze wint 2000 mm boven 2500 mm
+        let res = optimaliseer_profiel(&[2000], &[(2000, 48.50), (2500, 55.0)], 3).unwrap();
+        assert_eq!(res.per_lengte, vec![(2000, 48.50, 1, 48.50)]);
+        assert_eq!(res.kosten, 48.50);
+    }
+
+    #[test]
     fn te_lang_deel_kan_niet() {
         assert!(pack_optimaal(&[2500], 2000, 3).is_none());
     }

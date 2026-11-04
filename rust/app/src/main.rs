@@ -1267,7 +1267,7 @@ impl App {
             }
         });
         ui.label(format!(
-            "Zaagsnede: {} mm per zaagdeel — elk deel kost lengte + zaagsnede uit de ingekochte plank (een stuk van 1000 mm uit een plank van 2000 mm laat dus 997 mm rest over).",
+            "Zaagsnede: {} mm per zaagdeel — elk gezaagd deel kost lengte + zaagsnede (een stuk van 1000 mm uit een 2000 mm plank laat 997 mm rest). Een deel met exact de planklengte kost geen zaagsnede.",
             res.zaagsnede_mm
         ));
         ui.add_space(4.0);

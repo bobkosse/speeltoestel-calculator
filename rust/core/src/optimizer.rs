@@ -10,9 +10,21 @@ pub struct Bak {
 }
 
 fn past_in_bak(lengte: i64, bak: &Bak, zaagsnede: i64) -> bool {
-    // Elk zaagdeel kost lengte + zaagsnede uit de plank (ook het eerste stuk:
-    // om een plank van 2000 mm tot 1000 mm te reduceren verlies je 3 mm aan de zaagsnede).
+    // Een deel dat exact de resterende lengte heeft, hoeft niet gezaagd te worden (geen zaagsnede).
+    // Anders kost elk zaagdeel lengte + zaagsnede (om 2000 mm tot 1000 mm te reduceren verlies je 3 mm).
+    if lengte == bak.rest {
+        return true;
+    }
     lengte + zaagsnede <= bak.rest
+}
+
+/// Hoeveel van de bak een stuk verbruikt (lengte + zaagsnede, behalve bij exacte pasvorm).
+fn verbruik(lengte: i64, bak: &Bak, zaagsnede: i64) -> i64 {
+    if lengte == bak.rest {
+        lengte
+    } else {
+        lengte + zaagsnede
+    }
 }
 
 pub fn pack_ffd(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Vec<Bak> {
@@ -23,17 +35,19 @@ pub fn pack_ffd(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Vec<Bak> 
         let mut geplaatst = false;
         for bak in bakken.iter_mut() {
             if past_in_bak(item, bak, zaagsnede) {
+                let v = verbruik(item, bak, zaagsnede);
                 bak.stukken.push(item);
-                bak.rest -= item + zaagsnede;
+                bak.rest -= v;
                 geplaatst = true;
                 break;
             }
         }
         if !geplaatst {
+            let v = if item == stock_lengte { item } else { item + zaagsnede };
             bakken.push(Bak {
                 lengte: stock_lengte,
                 stukken: vec![item],
-                rest: stock_lengte - item - zaagsnede,
+                rest: stock_lengte - v,
             });
         }
     }
@@ -79,17 +93,19 @@ pub fn pack_optimaal(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Opti
             }
             if past_in_bak(items[i], &staat.bakken[j], zaagsnede) {
                 geprobeerd.push(sleutel);
+                let v = verbruik(items[i], &staat.bakken[j], zaagsnede);
                 staat.bakken[j].stukken.push(items[i]);
-                staat.bakken[j].rest -= items[i] + zaagsnede;
+                staat.bakken[j].rest -= v;
                 rec(staat, items, i + 1, stock_lengte, zaagsnede);
-                staat.bakken[j].rest += items[i] + zaagsnede;
+                staat.bakken[j].rest += v;
                 staat.bakken[j].stukken.pop();
             }
         }
+        let v = if items[i] == stock_lengte { items[i] } else { items[i] + zaagsnede };
         staat.bakken.push(Bak {
             lengte: stock_lengte,
             stukken: vec![items[i]],
-            rest: stock_lengte - items[i] - zaagsnede,
+            rest: stock_lengte - v,
         });
         rec(staat, items, i + 1, stock_lengte, zaagsnede);
         staat.bakken.pop();
@@ -149,7 +165,7 @@ pub fn optimaliseer_profiel(
     items.sort_by(|a, b| b.cmp(a));
     if items
         .iter()
-        .any(|&l| !inkoop.iter().any(|&(sl, _)| l + zaagsnede <= sl))
+        .any(|&l| !inkoop.iter().any(|&(sl, _)| l <= sl))
     {
         return None;
     }
@@ -216,20 +232,26 @@ pub fn optimaliseer_profiel(
             if geprobeerd.contains(&sleutel) {
                 continue;
             }
-            if items[i] + zaagsnede <= bins[j].rest {
+            if items[i] == bins[j].rest || items[i] + zaagsnede <= bins[j].rest {
                 geprobeerd.push(sleutel);
+                let v = if items[i] == bins[j].rest {
+                    items[i]
+                } else {
+                    items[i] + zaagsnede
+                };
                 bins[j].stukken.push(items[i]);
-                bins[j].rest -= items[i] + zaagsnede;
+                bins[j].rest -= v;
                 rec(bins, items, i + 1, inkoop, zaagsnede, kosten, best);
-                bins[j].rest += items[i] + zaagsnede;
+                bins[j].rest += v;
                 bins[j].stukken.pop();
             }
         }
         for &(l, p) in inkoop {
-            if items[i] + zaagsnede <= l {
+            if items[i] <= l {
+                let v = if items[i] == l { items[i] } else { items[i] + zaagsnede };
                 bins.push(Bin {
                     lengte: l,
-                    rest: l - items[i] - zaagsnede,
+                    rest: l - v,
                     stukken: vec![items[i]],
                 });
                 rec(bins, items, i + 1, inkoop, zaagsnede, kosten + p, best);

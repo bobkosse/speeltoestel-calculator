@@ -171,6 +171,10 @@ pub enum ProjectLijn {
         profiel_id: Option<String>,
         #[serde(default)]
         lengte_mm: i64,
+        /// Breedte van het benodigde deel; None = volle breedte van het profiel
+        /// (een smallere maat kan uit de plank geript worden).
+        #[serde(default)]
+        breedte_mm: Option<i64>,
         #[serde(default)]
         aantal: u32,
     },

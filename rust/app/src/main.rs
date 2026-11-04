@@ -151,6 +151,7 @@ impl Default for App {
                         id: "l1".to_string(),
                         profiel_id: Some("p1".to_string()),
                         lengte_mm: 1000,
+                        breedte_mm: None,
                         aantal: 2,
                     },
                     ProjectLijn::PerStuk {
@@ -771,6 +772,7 @@ impl App {
             ui.label(egui::RichText::new("Type").strong());
             ui.label(egui::RichText::new("Materiaal / profiel").strong());
             ui.label(egui::RichText::new("Lengte (mm)").strong());
+            ui.label(egui::RichText::new("Breedte (mm)").strong());
             ui.label(egui::RichText::new("Aantal").strong());
             ui.label("");
             ui.end_row();
@@ -794,6 +796,7 @@ impl App {
                                 id,
                                 profiel_id: catalogus.profielen.first().map(|p| p.id.clone()),
                                 lengte_mm: 0,
+                                breedte_mm: None,
                                 aantal: 1,
                             }
                         } else {
@@ -830,11 +833,13 @@ impl App {
                             *materiaal_id = Some(gekozen);
                         }
                         ui.label("–");
+                        ui.label("–");
                         egui::DragValue::new(aantal).speed(1.0).range(0..=100000).ui(ui);
                     }
                     ProjectLijn::Zaagdeel {
                         profiel_id,
                         lengte_mm,
+                        breedte_mm,
                         aantal,
                         ..
                     } => {
@@ -862,6 +867,12 @@ impl App {
                             .speed(10.0)
                             .range(0..=100000)
                             .ui(ui);
+                        let mut br = breedte_mm.unwrap_or(0);
+                        egui::DragValue::new(&mut br)
+                            .speed(1.0)
+                            .range(0..=100000)
+                            .ui(ui);
+                        *breedte_mm = if br > 0 { Some(br) } else { None };
                         egui::DragValue::new(aantal).speed(1.0).range(0..=100000).ui(ui);
                     }
                 }
@@ -887,6 +898,7 @@ impl App {
                     id: nieuw_id(),
                     profiel_id: catalogus.profielen.first().map(|p| p.id.clone()),
                     lengte_mm: 0,
+                    breedte_mm: None,
                     aantal: 1,
                 });
             }
@@ -1115,12 +1127,12 @@ impl App {
         for zr in &res.zaag_resultaten {
             if let Some(r) = &zr.resultaat {
                 for (i, bak) in r.bakken.iter().enumerate() {
-                    let stukken: Vec<String> = bak.stukken.iter().map(|s| format!("{s} mm")).collect();
+                    let stukken: Vec<String> = bak.stukken.iter().map(|s| format!("{} × {} mm", s.lengte, s.breedte)).collect();
                     zaag_rows.push(vec![
                         zr.profiel.naam(),
                         format!("{} ({} mm)", i + 1, bak.lengte),
                         stukken.join(" + "),
-                        format!("{} mm", bak.rest),
+                        format!("{} × {} mm", bak.rest, bak.rest_breedte),
                     ]);
                 }
             }
@@ -1359,11 +1371,11 @@ impl App {
                             for (i, bak) in r.bakken.iter().enumerate() {
                                 heeft_plan = true;
                                 let stukken: Vec<String> =
-                                    bak.stukken.iter().map(|s| format!("{s} mm")).collect();
+                                    bak.stukken.iter().map(|s| format!("{} × {} mm", s.lengte, s.breedte)).collect();
                                 ui.label(zr.profiel.naam());
                                 ui.label(format!("{} ({} mm)", i + 1, bak.lengte));
                                 ui.label(stukken.join(" + "));
-                                ui.label(format!("{} mm", bak.rest));
+                                ui.label(format!("{} × {} mm", bak.rest, bak.rest_breedte));
                                 ui.end_row();
                             }
                         }

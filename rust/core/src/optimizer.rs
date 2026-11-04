@@ -2,25 +2,36 @@ use crate::model::{Catalogus, Profiel, ProjectLijn};
 
 const FFD_LIMIET: usize = 40;
 
+/// Een benodigd zaagdeel: lengte × breedte in mm.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stuk {
+    pub lengte: i64,
+    pub breedte: i64,
+}
+
+/// Een ingekochte plank met de delen die eruit gezaagd worden.
 #[derive(Debug, Clone)]
 pub struct Bak {
+    /// Planklengte in mm.
     pub lengte: i64,
-    pub stukken: Vec<i64>,
+    pub stukken: Vec<Stuk>,
+    /// Resterende lengte in de laatste strook.
     pub rest: i64,
+    /// Resterende breedte van de plank.
+    pub rest_breedte: i64,
 }
 
-fn past_in_bak(lengte: i64, bak: &Bak, zaagsnede: i64) -> bool {
-    // Een deel dat exact de resterende lengte heeft, hoeft niet gezaagd te worden (geen zaagsnede).
-    // Anders kost elk zaagdeel lengte + zaagsnede (om 2000 mm tot 1000 mm te reduceren verlies je 3 mm).
-    if lengte == bak.rest {
+// ---------- alleen lengte (fallback / legacy) ----------
+
+fn past_in_bak_lengte(lengte: i64, rest: i64, zaagsnede: i64) -> bool {
+    if lengte == rest {
         return true;
     }
-    lengte + zaagsnede <= bak.rest
+    lengte + zaagsnede <= rest
 }
 
-/// Hoeveel van de bak een stuk verbruikt (lengte + zaagsnede, behalve bij exacte pasvorm).
-fn verbruik(lengte: i64, bak: &Bak, zaagsnede: i64) -> i64 {
-    if lengte == bak.rest {
+fn verbruik_lengte(lengte: i64, rest: i64, zaagsnede: i64) -> i64 {
+    if lengte == rest {
         lengte
     } else {
         lengte + zaagsnede
@@ -34,9 +45,9 @@ pub fn pack_ffd(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Vec<Bak> 
     for item in items {
         let mut geplaatst = false;
         for bak in bakken.iter_mut() {
-            if past_in_bak(item, bak, zaagsnede) {
-                let v = verbruik(item, bak, zaagsnede);
-                bak.stukken.push(item);
+            if past_in_bak_lengte(item, bak.rest, zaagsnede) {
+                let v = verbruik_lengte(item, bak.rest, zaagsnede);
+                bak.stukken.push(Stuk { lengte: item, breedte: 0 });
                 bak.rest -= v;
                 geplaatst = true;
                 break;
@@ -46,18 +57,22 @@ pub fn pack_ffd(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Vec<Bak> 
             let v = if item == stock_lengte { item } else { item + zaagsnede };
             bakken.push(Bak {
                 lengte: stock_lengte,
-                stukken: vec![item],
+                stukken: vec![Stuk { lengte: item, breedte: 0 }],
                 rest: stock_lengte - v,
+                rest_breedte: 0,
             });
         }
     }
     bakken
 }
 
-/// Optimaal (minimaal aantal bakken) verpakken; None als een deel te lang is.
+/// Optimaal (minimaal aantal bakken) op lengte; None als een deel te lang is.
 pub fn pack_optimaal(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Option<Vec<Bak>> {
-    let mut items: Vec<i64> = lengtes.to_vec();
-    items.sort_by(|a, b| b.cmp(a));
+    let items: Vec<i64> = {
+        let mut v = lengtes.to_vec();
+        v.sort_by(|a, b| b.cmp(a));
+        v
+    };
     if items.is_empty() {
         return Some(Vec::new());
     }
@@ -91,10 +106,10 @@ pub fn pack_optimaal(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Opti
             if geprobeerd.contains(&sleutel) {
                 continue;
             }
-            if past_in_bak(items[i], &staat.bakken[j], zaagsnede) {
+            if past_in_bak_lengte(items[i], staat.bakken[j].rest, zaagsnede) {
                 geprobeerd.push(sleutel);
-                let v = verbruik(items[i], &staat.bakken[j], zaagsnede);
-                staat.bakken[j].stukken.push(items[i]);
+                let v = verbruik_lengte(items[i], staat.bakken[j].rest, zaagsnede);
+                staat.bakken[j].stukken.push(Stuk { lengte: items[i], breedte: 0 });
                 staat.bakken[j].rest -= v;
                 rec(staat, items, i + 1, stock_lengte, zaagsnede);
                 staat.bakken[j].rest += v;
@@ -104,19 +119,84 @@ pub fn pack_optimaal(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Opti
         let v = if items[i] == stock_lengte { items[i] } else { items[i] + zaagsnede };
         staat.bakken.push(Bak {
             lengte: stock_lengte,
-            stukken: vec![items[i]],
+            stukken: vec![Stuk { lengte: items[i], breedte: 0 }],
             rest: stock_lengte - v,
+            rest_breedte: 0,
         });
         rec(staat, items, i + 1, stock_lengte, zaagsnede);
         staat.bakken.pop();
     }
 
-    let mut staat = Staat {
-        bakken: Vec::new(),
-        beste: None,
-    };
+    let mut staat = Staat { bakken: Vec::new(), beste: None };
     rec(&mut staat, &items, 0, stock_lengte, zaagsnede);
     staat.beste
+}
+
+// ---------- 2D: stroken over de breedte, per strook in de lengte ----------
+
+#[derive(Clone)]
+struct Strip {
+    /// Breedte van deze strook.
+    sw: i64,
+    /// Resterende lengte in deze strook.
+    rl: i64,
+}
+
+#[derive(Clone)]
+struct Bin {
+    lengte: i64,
+    /// Resterende breedte van de plank.
+    rw: i64,
+    strips: Vec<Strip>,
+    stukken: Vec<Stuk>,
+}
+
+impl Bin {
+    fn nieuw(lengte: i64, breedte: i64) -> Bin {
+        Bin { lengte, rw: breedte, strips: Vec::new(), stukken: Vec::new() }
+    }
+
+    fn strip_pas(&self, stuk: Stuk, zaagsnede: i64) -> bool {
+        match self.strips.last() {
+            Some(s) => stuk.breedte <= s.sw && past_in_bak_lengte(stuk.lengte, s.rl, zaagsnede),
+            None => false,
+        }
+    }
+
+    fn plaats_in_strip(&mut self, stuk: Stuk, zaagsnede: i64) {
+        let s = self.strips.last_mut().unwrap();
+        let v = verbruik_lengte(stuk.lengte, s.rl, zaagsnede);
+        s.rl -= v;
+        self.stukken.push(stuk);
+    }
+
+    /// Nieuwe strook starten: eerste strook gebruikt de fabriekskant (geen kerf),
+    /// elke volgende strook kost zaagsnede + breedte (net als n delen = n−1 zaagsnedes).
+    fn strip_kosten(&self, stuk: Stuk, zaagsnede: i64) -> i64 {
+        if self.strips.is_empty() {
+            stuk.breedte
+        } else {
+            zaagsnede + stuk.breedte
+        }
+    }
+
+    fn nieuwe_strip_pas(&self, stuk: Stuk, zaagsnede: i64) -> bool {
+        self.strip_kosten(stuk, zaagsnede) <= self.rw && past_in_bak_lengte(stuk.lengte, self.lengte, zaagsnede)
+    }
+
+    fn start_nieuwe_strip(&mut self, stuk: Stuk, zaagsnede: i64) {
+        self.rw -= self.strip_kosten(stuk, zaagsnede);
+        self.strips.push(Strip { sw: stuk.breedte, rl: self.lengte });
+        self.plaats_in_strip(stuk, zaagsnede);
+    }
+
+    fn bak(&self) -> Bak {
+        let (rest, rest_breedte) = match self.strips.last() {
+            Some(s) => (s.rl, self.rw),
+            None => (self.lengte, self.rw),
+        };
+        Bak { lengte: self.lengte, stukken: self.stukken.clone(), rest, rest_breedte }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -142,48 +222,42 @@ fn maak_resultaat(bakken: Vec<Bak>, inkoop: &[(i64, f64)]) -> ProfielResultaat {
         }
     }
     let kosten: f64 = per_lengte.iter().map(|(_, _, _, b)| *b).sum();
-    let afval = bakken.iter().map(|b| b.rest).sum();
-    ProfielResultaat {
-        per_lengte,
-        aantal: bakken.len(),
-        bakken,
-        kosten,
-        afval,
-    }
+    let afval: i64 = bakken.iter().map(|b| b.rest * b.rest_breedte).sum();
+    ProfielResultaat { per_lengte, aantal: bakken.len(), bakken, kosten, afval }
 }
 
 /// Kies de goedkoopste samenstelling van inkooplengtes (gemengd mogelijk) voor een set zaagdelen.
+/// `items` = (lengte, breedte) per benodigd deel; `plank_breedte` = breedte van het profiel.
 pub fn optimaliseer_profiel(
-    lengtes: &[i64],
+    items: &[Stuk],
+    plank_breedte: i64,
     inkoop: &[(i64, f64)],
     zaagsnede: i64,
 ) -> Option<ProfielResultaat> {
-    if inkoop.is_empty() {
+    if inkoop.is_empty() || items.is_empty() {
         return None;
     }
-    let mut items: Vec<i64> = lengtes.to_vec();
-    items.sort_by(|a, b| b.cmp(a));
-    if items
-        .iter()
-        .any(|&l| !inkoop.iter().any(|&(sl, _)| l <= sl))
-    {
+    if items.iter().any(|s| s.breedte > plank_breedte) {
         return None;
     }
-    if items.len() > FFD_LIMIET {
-        // fallback voor grote aantallen: alleen uniforme lengtes evalueren
+    if items.iter().any(|s| !inkoop.iter().any(|&(sl, _)| s.lengte <= sl)) {
+        return None;
+    }
+
+    let mut sortering: Vec<Stuk> = items.to_vec();
+    sortering.sort_by(|a, b| b.lengte.cmp(&a.lengte).then(b.breedte.cmp(&a.breedte)));
+
+    if sortering.len() > FFD_LIMIET {
+        // fallback voor grote aantallen: alleen op lengte (breedte past per definitie)
+        let lengtes: Vec<i64> = sortering.iter().map(|s| s.lengte).collect();
         let mut beste: Option<ProfielResultaat> = None;
         for &(l, p) in inkoop {
-            let Some(bakken) = pack_optimaal(lengtes, l, zaagsnede) else {
-                continue;
-            };
+            let Some(bakken) = pack_optimaal(&lengtes, l, zaagsnede) else { continue };
             let kosten = bakken.len() as f64 * p;
-            let afval: i64 = bakken.iter().map(|b| b.rest).sum();
+            let afval: i64 = bakken.iter().map(|b| b.rest * plank_breedte).sum();
             let is_beter = match &beste {
                 None => true,
-                Some(b) => {
-                    kosten < b.kosten - 1e-9
-                        || ((kosten - b.kosten).abs() <= 1e-9 && afval < b.afval)
-                }
+                Some(b) => kosten < b.kosten - 1e-9 || ((kosten - b.kosten).abs() <= 1e-9 && afval < b.afval),
             };
             if is_beter {
                 beste = Some(ProfielResultaat {
@@ -198,19 +272,12 @@ pub fn optimaliseer_profiel(
         return beste;
     }
 
-    // exacte branch & bound over alle inkooplengtes (gemengde samenstelling mogelijk)
-    #[derive(Clone)]
-    struct Bin {
-        lengte: i64,
-        rest: i64,
-        stukken: Vec<i64>,
-    }
-
     fn rec(
         bins: &mut Vec<Bin>,
-        items: &[i64],
+        items: &[Stuk],
         i: usize,
         inkoop: &[(i64, f64)],
+        plank_breedte: i64,
         zaagsnede: i64,
         kosten: f64,
         best: &mut Option<(f64, Vec<Bin>)>,
@@ -226,35 +293,40 @@ pub fn optimaliseer_profiel(
             }
             return;
         }
-        let mut geprobeerd: Vec<(i64, i64)> = Vec::new();
+        let stuk = items[i];
+        let mut geprobeerd: Vec<(i64, i64, i64)> = Vec::new();
         for j in 0..bins.len() {
-            let sleutel = (bins[j].rest, bins[j].lengte);
+            let sleutel = (
+                bins[j].strips.last().map_or(-1, |s| s.rl),
+                bins[j].strips.last().map_or(-1, |s| s.sw),
+                bins[j].rw,
+            );
             if geprobeerd.contains(&sleutel) {
                 continue;
             }
-            if items[i] == bins[j].rest || items[i] + zaagsnede <= bins[j].rest {
+            if bins[j].strip_pas(stuk, zaagsnede) {
                 geprobeerd.push(sleutel);
-                let v = if items[i] == bins[j].rest {
-                    items[i]
-                } else {
-                    items[i] + zaagsnede
-                };
-                bins[j].stukken.push(items[i]);
-                bins[j].rest -= v;
-                rec(bins, items, i + 1, inkoop, zaagsnede, kosten, best);
-                bins[j].rest += v;
+                bins[j].plaats_in_strip(stuk, zaagsnede);
+                rec(bins, items, i + 1, inkoop, plank_breedte, zaagsnede, kosten, best);
+                let s = bins[j].strips.last_mut().unwrap();
+                s.rl += verbruik_lengte(stuk.lengte, s.rl, zaagsnede);
+                bins[j].stukken.pop();
+            }
+            if bins[j].nieuwe_strip_pas(stuk, zaagsnede) {
+                let oude_rw = bins[j].rw;
+                let oude_strips = bins[j].strips.len();
+                bins[j].start_nieuwe_strip(stuk, zaagsnede);
+                rec(bins, items, i + 1, inkoop, plank_breedte, zaagsnede, kosten, best);
+                bins[j].strips.truncate(oude_strips);
+                bins[j].rw = oude_rw;
                 bins[j].stukken.pop();
             }
         }
         for &(l, p) in inkoop {
-            if items[i] <= l {
-                let v = if items[i] == l { items[i] } else { items[i] + zaagsnede };
-                bins.push(Bin {
-                    lengte: l,
-                    rest: l - v,
-                    stukken: vec![items[i]],
-                });
-                rec(bins, items, i + 1, inkoop, zaagsnede, kosten + p, best);
+            if stuk.lengte <= l && stuk.breedte <= plank_breedte {
+                bins.push(Bin::nieuw(l, plank_breedte));
+                bins.last_mut().unwrap().start_nieuwe_strip(stuk, zaagsnede);
+                rec(bins, items, i + 1, inkoop, plank_breedte, zaagsnede, kosten + p, best);
                 bins.pop();
             }
         }
@@ -262,16 +334,9 @@ pub fn optimaliseer_profiel(
 
     let mut bins: Vec<Bin> = Vec::new();
     let mut best: Option<(f64, Vec<Bin>)> = None;
-    rec(&mut bins, &items, 0, inkoop, zaagsnede, 0.0, &mut best);
+    rec(&mut bins, &sortering, 0, inkoop, plank_breedte, zaagsnede, 0.0, &mut best);
     best.map(|(_, bins)| {
-        let bakken = bins
-            .into_iter()
-            .map(|b| Bak {
-                lengte: b.lengte,
-                stukken: b.stukken,
-                rest: b.rest,
-            })
-            .collect();
+        let bakken = bins.iter().map(|b| b.bak()).collect();
         maak_resultaat(bakken, inkoop)
     })
 }
@@ -291,12 +356,9 @@ pub struct Berekening {
 #[derive(Debug, Clone)]
 pub struct PerStukKosten {
     pub naam: String,
-    /// Benodigd aantal stuks.
     pub aantal: u32,
-    /// Inkoopeenheid (bijv. "doos"); leeg als per stuk ingekocht.
     pub eenheid: String,
     pub aantal_per_eenheid: f64,
-    /// Aantal inkoopeenheden dat aangeschaft moet worden.
     pub inkoop_aantal: u32,
     pub prijs_per_eenheid: f64,
     pub prijs_per_stuk: f64,
@@ -306,7 +368,7 @@ pub struct PerStukKosten {
 #[derive(Debug, Clone)]
 pub struct ZaagResultaat {
     pub profiel: Profiel,
-    pub lengtes: Vec<i64>,
+    pub stukken: Vec<Stuk>,
     pub resultaat: Option<ProfielResultaat>,
     pub kosten: f64,
 }
@@ -315,15 +377,11 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
     let zaagsnede = catalogus.instellingen.zaagsnede_mm.round() as i64;
 
     let mut per_stuk: Vec<PerStukKosten> = Vec::new();
-    let mut zaag_groepen: Vec<(String, Vec<i64>)> = Vec::new();
+    let mut zaag_groepen: Vec<(String, Vec<Stuk>)> = Vec::new();
 
     for lijn in project {
         match lijn {
-            ProjectLijn::PerStuk {
-                materiaal_id,
-                aantal,
-                ..
-            } => {
+            ProjectLijn::PerStuk { materiaal_id, aantal, .. } => {
                 if let Some(m) = materiaal_id
                     .as_ref()
                     .and_then(|id| catalogus.per_stuk.iter().find(|m| &m.id == id))
@@ -334,7 +392,6 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
                     } else {
                         *aantal
                     };
-                    let kosten = rond2(*aantal as f64 * stukprijs);
                     per_stuk.push(PerStukKosten {
                         naam: m.naam.clone(),
                         aantal: *aantal,
@@ -343,23 +400,20 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
                         inkoop_aantal,
                         prijs_per_eenheid: m.prijs_per_eenheid,
                         prijs_per_stuk: stukprijs,
-                        kosten,
+                        kosten: rond2(*aantal as f64 * stukprijs),
                     });
                 }
             }
-            ProjectLijn::Zaagdeel {
-                profiel_id,
-                lengte_mm,
-                aantal,
-                ..
-            } => {
+            ProjectLijn::Zaagdeel { profiel_id, lengte_mm, breedte_mm, aantal, .. } => {
                 let Some(pid) = profiel_id else { continue };
+                let Some(profiel) = catalogus.profielen.iter().find(|p| p.id == *pid) else { continue };
+                let breedte = breedte_mm.unwrap_or(profiel.breedte_mm).min(profiel.breedte_mm).max(0);
                 if let Some(groep) = zaag_groepen.iter_mut().find(|(id, _)| id == pid) {
                     for _ in 0..*aantal {
-                        groep.1.push(*lengte_mm);
+                        groep.1.push(Stuk { lengte: *lengte_mm, breedte });
                     }
                 } else {
-                    zaag_groepen.push((pid.clone(), vec![*lengte_mm; *aantal as usize]));
+                    zaag_groepen.push((pid.clone(), vec![Stuk { lengte: *lengte_mm, breedte }; *aantal as usize]));
                 }
             }
         }
@@ -367,24 +421,15 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
 
     let mut zaag_resultaten: Vec<ZaagResultaat> = Vec::new();
     let mut totaal = 0.0;
-    for (pid, lengtes) in zaag_groepen {
+    for (pid, stukken) in zaag_groepen {
         let Some(profiel) = catalogus.profielen.iter().find(|p| p.id == pid).cloned() else {
             continue;
         };
-        let inkoop: Vec<(i64, f64)> = profiel
-            .inkoop
-            .iter()
-            .map(|o| (o.lengte_mm, o.prijs))
-            .collect();
-        let resultaat = optimaliseer_profiel(&lengtes, &inkoop, zaagsnede);
+        let inkoop: Vec<(i64, f64)> = profiel.inkoop.iter().map(|o| (o.lengte_mm, o.prijs)).collect();
+        let resultaat = optimaliseer_profiel(&stukken, profiel.breedte_mm, &inkoop, zaagsnede);
         let kosten = rond2(resultaat.as_ref().map_or(0.0, |r| r.kosten));
         totaal += kosten;
-        zaag_resultaten.push(ZaagResultaat {
-            profiel,
-            lengtes,
-            resultaat,
-            kosten,
-        });
+        zaag_resultaten.push(ZaagResultaat { profiel, stukken, resultaat, kosten });
     }
     for l in &per_stuk {
         totaal += l.kosten;

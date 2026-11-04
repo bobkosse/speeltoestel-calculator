@@ -48,7 +48,15 @@ In de PDF/print staat onderaan elke pagina de footer: “Afgedrukt met Speelgoed
 ./make_app_bundle.sh
 ```
 
-Dit bouwt `target/release/Speeltoestel Calculator.app` (en een `.dmg`). Dubbelklik de .app in Finder: alleen de GUI opent. Het favicon van www.robuustbuitenspelen.nl zit als icoon in `app/assets/AppIcon.iconset/` en wordt automatisch als `AppIcon.icns` in de .app meegenomen. Bij Gatekeeper-melding: rechtermuisknop → Open.
+Dit bouwt `target/release/Speeltoestel Calculator.app` (en een `.dmg`). Dubbelklik de .app in Finder: alleen de GUI opent.
+
+**Installeren in je Apps-map (/Applications):**
+
+```bash
+./make_app_bundle.sh --install
+```
+
+Dan staat de app vast in `/Applications` (bij fehlende rechten krijg je de macOS admin-dialoog). Het favicon van www.robuustbuitenspelen.nl zit als icoon in `app/assets/AppIcon.iconset/` en wordt automatisch als `AppIcon.icns` in de .app meegenomen. Bij Gatekeeper-melding: rechtermuisknop → Open.
 
 ## Testen
 

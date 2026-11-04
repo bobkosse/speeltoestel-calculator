@@ -75,3 +75,20 @@ echo ""
 echo "Klaar. Dubbelklik ${APP} in Finder — er verschijnt geen terminal."
 echo "Let op: bij de eerste keer openen kan macOS Gatekeeper melden dat de app"
 echo "van een onbekende ontwikkelaar komt. Rechtermuisknop → Open lost dat op."
+
+# Optioneel: installeer naar /Applications (Apps-map)
+if [ "${1:-}" = "--install" ]; then
+  DEST="/Applications/${APP_NAME}.app"
+  echo "==> installeren naar ${DEST}"
+  rm -rf "$DEST"
+  if cp -R "$APP" "$DEST" 2>/dev/null; then
+    echo "==> geïnstalleerd: ${DEST}"
+  else
+    # geen schrijfrechten: vraag admin-rechten via macOS dialoog
+    osascript -e "do shell script \"rm -rf '${DEST}' && cp -R '${APP}' '${DEST}'\" with administrator privileges" \
+      && echo "==> geïnstalleerd: ${DEST}"
+  fi
+  # Gatekeeper-quarantine verwijderen zodat de app direct opent
+  xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
+  echo "Klaar — de app staat nu in je Apps-map (/Applications)."
+fi

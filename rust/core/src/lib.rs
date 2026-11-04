@@ -144,26 +144,31 @@ mod tests {
         assert_eq!(terug.per_stuk.len(), 2);
         assert_eq!(terug.profielen.len(), 1);
 
-        let project = ProjectData {
+        let projecten = ProjectenData {
             versie: 1,
-            project: vec![
-                ProjectLijn::Zaagdeel {
-                    id: "l1".into(),
-                    profiel_id: Some("p1".into()),
-                    lengte_mm: 1000,
-                    aantal: 2,
-                },
-                ProjectLijn::PerStuk {
-                    id: "l2".into(),
-                    materiaal_id: Some("s1".into()),
-                    aantal: 24,
-                },
-            ],
+            projecten: vec![ProjectEntry {
+                id: "pr1".into(),
+                naam: "Speeltoren".into(),
+                regels: vec![
+                    ProjectLijn::Zaagdeel {
+                        id: "l1".into(),
+                        profiel_id: Some("p1".into()),
+                        lengte_mm: 1000,
+                        aantal: 2,
+                    },
+                    ProjectLijn::PerStuk {
+                        id: "l2".into(),
+                        materiaal_id: Some("s1".into()),
+                        aantal: 24,
+                    },
+                ],
+            }],
         };
-        let pjson = serde_json::to_string_pretty(&project).unwrap();
-        let pterug: ProjectData = serde_json::from_str(&pjson).unwrap();
-        assert_eq!(pterug.project.len(), 2);
-        let res = bereken_project(&terug, &pterug.project);
+        let pjson = serde_json::to_string_pretty(&projecten).unwrap();
+        let pterug: ProjectenData = serde_json::from_str(&pjson).unwrap();
+        assert_eq!(pterug.projecten.len(), 1);
+        assert_eq!(pterug.projecten[0].regels.len(), 2);
+        let res = bereken_project(&terug, &pterug.projecten[0].regels);
         assert!(res.totaal_excl > 0.0);
     }
 
@@ -180,10 +185,12 @@ mod tests {
         }"#;
         let value: serde_json::Value = serde_json::from_str(legacy).unwrap();
         let catalogus: Catalogus = serde_json::from_value(value.clone()).unwrap();
-        let project: ProjectData = serde_json::from_value(value).unwrap();
+        // legacy "project"-array wordt in de app verpakt in één ProjectEntry
+        let regels: Vec<ProjectLijn> =
+            serde_json::from_value(value["project"].clone()).unwrap();
         assert_eq!(catalogus.profielen.len(), 1);
-        assert_eq!(project.project.len(), 1);
-        let res = bereken_project(&catalogus, &project.project);
+        assert_eq!(regels.len(), 1);
+        let res = bereken_project(&catalogus, &regels);
         assert_eq!(res.zaag_resultaten[0].kosten, 80.0);
     }
 }

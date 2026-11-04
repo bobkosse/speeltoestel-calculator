@@ -14,13 +14,23 @@ pub struct Catalogus {
     pub profielen: Vec<Profiel>,
 }
 
-/// Projectbestand: alleen de benodigde onderdelen.
+/// Eén project binnen het projectenbestand.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectData {
+pub struct ProjectEntry {
+    pub id: String,
+    #[serde(default)]
+    pub naam: String,
+    #[serde(default)]
+    pub regels: Vec<ProjectLijn>,
+}
+
+/// Projectenbestand: álle projecten in één JSON-bestand.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectenData {
     #[serde(default = "een")]
     pub versie: u32,
     #[serde(default)]
-    pub project: Vec<ProjectLijn>,
+    pub projecten: Vec<ProjectEntry>,
 }
 
 fn een() -> u32 {

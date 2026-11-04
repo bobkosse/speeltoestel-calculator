@@ -3,10 +3,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
 use eframe::egui::Widget;
-use speeltoestel_core::model::{Catalogus, InkoopOptie, PerStuk, Profiel, ProjectData, ProjectLijn};
+use speeltoestel_core::model::{Catalogus, InkoopOptie, PerStuk, Profiel, ProjectEntry, ProjectLijn, ProjectenData};
 use speeltoestel_core::optimizer::bereken_project;
 
 static ID_TELLER: AtomicU64 = AtomicU64::new(0);
+
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(0xC0, 0x85, 0x52);
+const SIDEBAR_BG: egui::Color32 = egui::Color32::from_rgb(0x21, 0x1C, 0x17);
+const PANEL_BG: egui::Color32 = egui::Color32::from_rgb(0x17, 0x14, 0x11);
 
 fn nieuw_id() -> String {
     let n = ID_TELLER.fetch_add(1, Ordering::SeqCst);
@@ -19,45 +23,65 @@ fn nieuw_id() -> String {
 
 #[derive(PartialEq, Clone, Copy)]
 enum Tab {
+    Projecten,
     Materialen,
     Project,
     Calculatie,
 }
 
+impl Tab {
+    fn label(self) -> &'static str {
+        match self {
+            Tab::Projecten => "Projecten",
+            Tab::Materialen => "Materialen",
+            Tab::Project => "Project",
+            Tab::Calculatie => "Calculatie",
+        }
+    }
+}
+
 struct App {
     catalogus: Catalogus,
-    project: Vec<ProjectLijn>,
+    projecten: Vec<ProjectEntry>,
+    huidig_project: Option<String>,
     bestand_bibliotheek: Option<PathBuf>,
-    bestand_project: Option<PathBuf>,
+    bestand_projecten: Option<PathBuf>,
     tab: Tab,
     status: String,
     nieuw_per_stuk: (String, String, String),
     nieuw_profiel_inkoop: (String, String),
+    nieuwe_project_naam: String,
 }
 
 impl Default for App {
     fn default() -> Self {
         App {
             catalogus: Catalogus::default(),
-            project: vec![
-                ProjectLijn::Zaagdeel {
-                    id: "l1".to_string(),
-                    profiel_id: Some("p1".to_string()),
-                    lengte_mm: 1000,
-                    aantal: 2,
-                },
-                ProjectLijn::PerStuk {
-                    id: "l2".to_string(),
-                    materiaal_id: Some("s1".to_string()),
-                    aantal: 24,
-                },
-            ],
+            projecten: vec![ProjectEntry {
+                id: "pr1".to_string(),
+                naam: "Voorbeeldproject".to_string(),
+                regels: vec![
+                    ProjectLijn::Zaagdeel {
+                        id: "l1".to_string(),
+                        profiel_id: Some("p1".to_string()),
+                        lengte_mm: 1000,
+                        aantal: 2,
+                    },
+                    ProjectLijn::PerStuk {
+                        id: "l2".to_string(),
+                        materiaal_id: Some("s1".to_string()),
+                        aantal: 24,
+                    },
+                ],
+            }],
+            huidig_project: Some("pr1".to_string()),
             bestand_bibliotheek: None,
-            bestand_project: None,
-            tab: Tab::Materialen,
-            status: "Nieuwe bibliotheek, onopgeslagen project".to_string(),
+            bestand_projecten: None,
+            tab: Tab::Projecten,
+            status: "Onopgeslagen wijzigingen".to_string(),
             nieuw_per_stuk: (String::new(), String::new(), String::new()),
             nieuw_profiel_inkoop: (String::new(), String::new()),
+            nieuwe_project_naam: String::new(),
         }
     }
 }
@@ -80,47 +104,98 @@ impl App {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "onopgeslagen".to_string());
         let proj = self
-            .bestand_project
+            .bestand_projecten
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "onopgeslagen".to_string());
-        self.status = format!("Bibliotheek: {bib}  |  Project: {proj}");
+        self.status = format!("Bibliotheek: {bib}  ·  Projecten: {proj}");
     }
 
-    fn lees_bestand(path: &std::path::Path) -> Result<(Catalogus, Vec<ProjectLijn>), String> {
+    fn huidig_project(&self) -> Option<&ProjectEntry> {
+        self.huidig_project
+            .as_ref()
+            .and_then(|id| self.projecten.iter().find(|p| &p.id == id))
+    }
+
+    fn lees_projecten_bestand(path: &std::path::Path) -> Result<(Option<Catalogus>, ProjectenData), String> {
         let tekst = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         let value: serde_json::Value =
             serde_json::from_str(&tekst).map_err(|e| format!("geen geldige JSON: {e}"))?;
-        let is_legacy = value.get("per_stuk").is_some() || value.get("profielen").is_some();
-        if is_legacy {
-            let catalogus: Catalogus = serde_json::from_value(value.clone())
-                .map_err(|e| format!("geen geldige materialenbibliotheek: {e}"))?;
-            let project: ProjectData = serde_json::from_value(value)
-                .map_err(|e| format!("geen geldig project: {e}"))?;
-            Ok((catalogus, project.project))
+        if value.get("projecten").is_some() {
+            let data: ProjectenData = serde_json::from_value(value)
+                .map_err(|e| format!("geen geldig projectenbestand: {e}"))?;
+            Ok((None, data))
+        } else if value.get("project").is_some() || value.get("per_stuk").is_some() || value.get("profielen").is_some() {
+            // legacy: combined bestand (catalogus + project) of enkel project-array
+            let catalogus = if value.get("per_stuk").is_some() || value.get("profielen").is_some() {
+                Some(serde_json::from_value(value.clone()).map_err(|e| e.to_string())?)
+            } else {
+                None
+            };
+            let regels: Vec<ProjectLijn> = serde_json::from_value(value["project"].clone())
+                .map_err(|e| format!("geen geldige projectregels: {e}"))?;
+            Ok((
+                catalogus,
+                ProjectenData {
+                    versie: 1,
+                    projecten: vec![ProjectEntry {
+                        id: nieuw_id(),
+                        naam: "Geïmporteerd project".to_string(),
+                        regels,
+                    }],
+                },
+            ))
         } else {
-            let project: ProjectData = serde_json::from_value(value)
-                .map_err(|e| format!("geen geldig projectbestand: {e}"))?;
-            Ok((Catalogus::default(), project.project))
+            Err("geen projectenbestand (geen \"projecten\" of \"project\" gevonden)".to_string())
         }
     }
 
-    fn bibliotheek_openen(&mut self) {
+    fn projecten_openen(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("JSON-bestand", &["json"])
             .pick_file()
         {
-            let legacy = value_is_legacy(&path);
-            match Self::lees_bestand(&path) {
-                Ok((catalogus, project)) => {
-                    self.catalogus = catalogus;
-                    if legacy {
-                        self.project = project;
+            match Self::lees_projecten_bestand(&path) {
+                Ok((catalogus, data)) => {
+                    if let Some(c) = catalogus {
+                        self.catalogus = c;
                     }
-                    self.bestand_bibliotheek = Some(path);
+                    self.projecten = data.projecten;
+                    self.huidig_project = self.projecten.first().map(|p| p.id.clone());
+                    self.bestand_projecten = Some(path);
                     self.set_status();
                 }
                 Err(e) => self.status = format!("Kon bestand niet lezen: {e}"),
+            }
+        }
+    }
+
+    fn projecten_opslaan(&mut self, als_anders: bool) {
+        let data = ProjectenData {
+            versie: 1,
+            projecten: self.projecten.clone(),
+        };
+        let json = match serde_json::to_string_pretty(&data) {
+            Ok(j) => j,
+            Err(e) => {
+                self.status = format!("Serialisatiefout: {e}");
+                return;
+            }
+        };
+        let mut path = if als_anders { None } else { self.bestand_projecten.clone() };
+        if path.is_none() {
+            path = rfd::FileDialog::new()
+                .add_filter("JSON-bestand", &["json"])
+                .set_file_name("projecten.json")
+                .save_file();
+        }
+        if let Some(p) = path {
+            match std::fs::write(&p, json) {
+                Ok(()) => {
+                    self.bestand_projecten = Some(p);
+                    self.set_status();
+                }
+                Err(e) => self.status = format!("Opslaan mislukt: {e}"),
             }
         }
     }
@@ -151,105 +226,148 @@ impl App {
         }
     }
 
-    fn project_openen(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("JSON-bestand", &["json"])
-            .pick_file()
-        {
-            match Self::lees_bestand(&path) {
-                Ok((catalogus, project)) => {
-                    let legacy = value_is_legacy(&path);
-                    if legacy {
-                        self.catalogus = catalogus;
+    fn sidebar(&mut self, ctx: &egui::Context) {
+        egui::SidePanel::left("sidebar")
+            .frame(
+                egui::Frame::default()
+                    .fill(SIDEBAR_BG)
+                    .inner_margin(egui::Margin::same(14.0)),
+            )
+            .show(ctx, |ui| {
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("Speeltoestel\nCalculator")
+                        .strong()
+                        .size(20.0)
+                        .color(ACCENT),
+                );
+                ui.add_space(18.0);
+                for tab in [Tab::Projecten, Tab::Materialen, Tab::Project, Tab::Calculatie] {
+                    let selected = self.tab == tab;
+                    let response = ui.add_sized(
+                        egui::vec2(ui.available_width(), 38.0),
+                        egui::SelectableLabel::new(selected, egui::RichText::new(tab.label()).size(15.0)),
+                    );
+                    if response.clicked() {
+                        self.tab = tab;
                     }
-                    self.project = project;
-                    self.bestand_project = Some(path);
-                    self.set_status();
+                    ui.add_space(4.0);
                 }
-                Err(e) => self.status = format!("Kon bestand niet lezen: {e}"),
-            }
-        }
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.label(egui::RichText::new(&self.status).weak().small());
+                });
+            });
     }
 
-    fn project_opslaan(&mut self, als_anders: bool) {
-        let data = ProjectData {
-            versie: 1,
-            project: self.project.clone(),
-        };
-        let json = match serde_json::to_string_pretty(&data) {
-            Ok(j) => j,
-            Err(e) => {
-                self.status = format!("Serialisatiefout: {e}");
-                return;
-            }
-        };
-        let mut path = if als_anders { None } else { self.bestand_project.clone() };
-        if path.is_none() {
-            path = rfd::FileDialog::new()
-                .add_filter("JSON-bestand", &["json"])
-                .set_file_name("speeltoestel-project.json")
-                .save_file();
-        }
-        if let Some(p) = path {
-            match std::fs::write(&p, json) {
-                Ok(()) => {
-                    self.bestand_project = Some(p);
-                    self.set_status();
+    fn topbar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(self.tab.label()).strong().size(16.0));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Projecten opslaan als…").clicked() {
+                    self.projecten_opslaan(true);
                 }
-                Err(e) => self.status = format!("Opslaan mislukt: {e}"),
-            }
-        }
-    }
-
-    fn nieuw_project(&mut self) {
-        self.project = Vec::new();
-        self.bestand_project = None;
-        self.set_status();
-    }
-
-    fn header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.heading("Speeltoestel Calculator");
-            ui.label(egui::RichText::new(&self.status).weak().small());
-        });
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Materialenbibliotheek:").strong());
-            if ui.button("Openen…").clicked() {
-                self.bibliotheek_openen();
-            }
-            if ui.button("Opslaan").clicked() {
-                self.bibliotheek_opslaan(false);
-            }
-            if ui.button("Opslaan als…").clicked() {
-                self.bibliotheek_opslaan(true);
-            }
-            ui.separator();
-            ui.label(egui::RichText::new("Project:").strong());
-            if ui.button("Nieuw").clicked() {
-                self.nieuw_project();
-            }
-            if ui.button("Openen…").clicked() {
-                self.project_openen();
-            }
-            if ui.button("Opslaan").clicked() {
-                self.project_opslaan(false);
-            }
-            if ui.button("Opslaan als…").clicked() {
-                self.project_opslaan(true);
-            }
-        });
-        ui.horizontal(|ui| {
-            for (tab, label) in [
-                (Tab::Materialen, "Materialen"),
-                (Tab::Project, "Project"),
-                (Tab::Calculatie, "Calculatie"),
-            ] {
-                if ui.selectable_label(self.tab == tab, label).clicked() {
-                    self.tab = tab;
+                if ui.button("Projecten opslaan").clicked() {
+                    self.projecten_opslaan(false);
                 }
-            }
+                if ui.button("Projecten openen…").clicked() {
+                    self.projecten_openen();
+                }
+                ui.separator();
+                if ui.button("Bibliotheek opslaan als…").clicked() {
+                    self.bibliotheek_opslaan(true);
+                }
+                if ui.button("Bibliotheek opslaan").clicked() {
+                    self.bibliotheek_opslaan(false);
+                }
+            });
         });
         ui.separator();
+    }
+
+    fn tab_projecten(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Projecten");
+        ui.label("Alle projecten staan in één bestand. Open een project om de onderdelen te bewerken.");
+        ui.add_space(6.0);
+
+        let kosten: Vec<f64> = self
+            .projecten
+            .iter()
+            .map(|p| bereken_project(&self.catalogus, &p.regels).totaal_excl)
+            .collect();
+
+        let mut actie: Option<(&'static str, String)> = None;
+        egui::Grid::new("projecten_grid")
+            .striped(true)
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Naam").strong());
+                ui.label(egui::RichText::new("Onderdelen").strong());
+                ui.label(egui::RichText::new("Totaal excl. BTW").strong());
+                ui.label("");
+                ui.label("");
+                ui.end_row();
+                for i in 0..self.projecten.len() {
+                    let id = self.projecten[i].id.clone();
+                    let is_huidig = self.huidig_project.as_deref() == Some(id.as_str());
+                    let mut naam = self.projecten[i].naam.clone();
+                    egui::TextEdit::singleline(&mut naam)
+                        .desired_width(240.0)
+                        .ui(ui);
+                    if naam != self.projecten[i].naam {
+                        self.projecten[i].naam = naam;
+                    }
+                    ui.label(format!("{}", self.projecten[i].regels.len()));
+                    let mut kost_label = self.fmt_bedrag(kosten[i]);
+                    if is_huidig {
+                        kost_label.push_str("  (actief)");
+                    }
+                    ui.label(kost_label);
+                    if ui.button("Openen").clicked() {
+                        actie = Some(("openen", id.clone()));
+                    }
+                    if ui.button("Verwijder").clicked() {
+                        actie = Some(("verwijder", id));
+                    }
+                    ui.end_row();
+                }
+            });
+        match actie {
+            Some(("openen", id)) => {
+                self.huidig_project = Some(id);
+                self.tab = Tab::Project;
+            }
+            Some(("verwijder", id)) => {
+                self.projecten.retain(|p| p.id != id);
+                if self.huidig_project.as_deref() == Some(id.as_str()) {
+                    self.huidig_project = None;
+                }
+            }
+            _ => {}
+        }
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            egui::TextEdit::singleline(&mut self.nieuwe_project_naam)
+                .desired_width(240.0)
+                .hint_text("Naam nieuw project")
+                .ui(ui);
+            if ui.button("+ Nieuw project").clicked() {
+                let naam = if self.nieuwe_project_naam.trim().is_empty() {
+                    format!("Project {}", self.projecten.len() + 1)
+                } else {
+                    self.nieuwe_project_naam.trim().to_string()
+                };
+                let id = nieuw_id();
+                self.projecten.push(ProjectEntry {
+                    id: id.clone(),
+                    naam,
+                    regels: Vec::new(),
+                });
+                self.huidig_project = Some(id);
+                self.nieuwe_project_naam.clear();
+                self.tab = Tab::Project;
+            }
+        });
     }
 
     fn tab_materialen(&mut self, ui: &mut egui::Ui) {
@@ -275,7 +393,7 @@ impl App {
 
             ui.heading("Producten per stuk");
             ui.label("Schroeven, bouten, etc. — prijs per stuk, exclusief BTW. Deze bibliotheek deel je tussen alle projecten.");
-            egui::Grid::new("per_stuk_grid").show(ui, |ui| {
+            egui::Grid::new("per_stuk_grid").striped(true).show(ui, |ui| {
                 ui.label(egui::RichText::new("Naam").strong());
                 ui.label(egui::RichText::new("Prijs/stuk").strong());
                 ui.label(egui::RichText::new("Extra info").strong());
@@ -300,12 +418,14 @@ impl App {
                 }
                 if let Some(id) = verwijder {
                     self.catalogus.per_stuk.retain(|m| m.id != id);
-                    self.project.retain(|l| match l {
-                        ProjectLijn::PerStuk { materiaal_id, .. } => {
-                            materiaal_id.as_deref() != Some(id.as_str())
-                        }
-                        _ => true,
-                    });
+                    for p in self.projecten.iter_mut() {
+                        p.regels.retain(|l| match l {
+                            ProjectLijn::PerStuk { materiaal_id, .. } => {
+                                materiaal_id.as_deref() != Some(id.as_str())
+                            }
+                            _ => true,
+                        });
+                    }
                 }
             });
             ui.horizontal(|ui| {
@@ -345,6 +465,7 @@ impl App {
                 let profiel_id = self.catalogus.profielen[pi].id.clone();
                 egui::CollapsingHeader::new(format!("Profiel: {}", self.catalogus.profielen[pi].naam()))
                     .id_salt(&profiel_id)
+                    .default_open(true)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Houtsoort:");
@@ -412,12 +533,14 @@ impl App {
             }
             if let Some(id) = verwijder_profiel {
                 self.catalogus.profielen.retain(|p| p.id != id);
-                self.project.retain(|l| match l {
-                    ProjectLijn::Zaagdeel { profiel_id, .. } => {
-                        profiel_id.as_deref() != Some(id.as_str())
-                    }
-                    _ => true,
-                });
+                for p in self.projecten.iter_mut() {
+                    p.regels.retain(|l| match l {
+                        ProjectLijn::Zaagdeel { profiel_id, .. } => {
+                            profiel_id.as_deref() != Some(id.as_str())
+                        }
+                        _ => true,
+                    });
+                }
             }
             if let Some((pid, oi)) = verwijder_inkoop {
                 if let Some(p) = self.catalogus.profielen.iter_mut().find(|p| p.id == pid) {
@@ -441,141 +564,170 @@ impl App {
         });
     }
 
-    fn tab_project(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.heading("Benodigde onderdelen");
-            egui::Grid::new("project_grid").show(ui, |ui| {
-                ui.label(egui::RichText::new("Type").strong());
-                ui.label(egui::RichText::new("Materiaal / profiel").strong());
-                ui.label(egui::RichText::new("Lengte (mm)").strong());
-                ui.label(egui::RichText::new("Aantal").strong());
-                ui.label("");
+    fn regels_editor(catalogus: &Catalogus, ui: &mut egui::Ui, regels: &mut Vec<ProjectLijn>) {
+        egui::Grid::new("project_grid").striped(true).show(ui, |ui| {
+            ui.label(egui::RichText::new("Type").strong());
+            ui.label(egui::RichText::new("Materiaal / profiel").strong());
+            ui.label(egui::RichText::new("Lengte (mm)").strong());
+            ui.label(egui::RichText::new("Aantal").strong());
+            ui.label("");
+            ui.end_row();
+            let mut verwijder: Option<String> = None;
+            let len = regels.len();
+            for i in 0..len {
+                let lijn_id = regels[i].id().to_string();
+                let is_zaagdeel = matches!(regels[i], ProjectLijn::Zaagdeel { .. });
+                let mut nieuw_type_zaagdeel = is_zaagdeel;
+                egui::ComboBox::from_id_salt(format!("type_{lijn_id}"))
+                    .selected_text(if is_zaagdeel { "Zaagdeel" } else { "Per stuk" })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut nieuw_type_zaagdeel, true, "Zaagdeel");
+                        ui.selectable_value(&mut nieuw_type_zaagdeel, false, "Per stuk");
+                    });
+                if nieuw_type_zaagdeel != is_zaagdeel {
+                    let id = lijn_id.clone();
+                    if let Some(l) = regels.iter_mut().find(|l| l.id() == id) {
+                        *l = if nieuw_type_zaagdeel {
+                            ProjectLijn::Zaagdeel {
+                                id,
+                                profiel_id: catalogus.profielen.first().map(|p| p.id.clone()),
+                                lengte_mm: 0,
+                                aantal: 1,
+                            }
+                        } else {
+                            ProjectLijn::PerStuk {
+                                id,
+                                materiaal_id: catalogus.per_stuk.first().map(|m| m.id.clone()),
+                                aantal: 1,
+                            }
+                        };
+                    }
+                }
+                match &mut regels[i] {
+                    ProjectLijn::PerStuk {
+                        materiaal_id, aantal, ..
+                    } => {
+                        let mut gekozen = materiaal_id.clone().unwrap_or_default();
+                        egui::ComboBox::from_id_salt(format!("mat_{lijn_id}"))
+                            .selected_text(
+                                catalogus
+                                    .per_stuk
+                                    .iter()
+                                    .find(|m| Some(&m.id) == materiaal_id.as_ref())
+                                    .map(|m| m.naam.clone())
+                                    .unwrap_or_else(|| "– kies –".to_string()),
+                            )
+                            .show_ui(ui, |ui| {
+                                for m in &catalogus.per_stuk {
+                                    ui.selectable_value(&mut gekozen, m.id.clone(), &m.naam);
+                                }
+                            });
+                        if gekozen != materiaal_id.as_deref().unwrap_or("")
+                            || (materiaal_id.is_none() && !gekozen.is_empty())
+                        {
+                            *materiaal_id = Some(gekozen);
+                        }
+                        ui.label("–");
+                        egui::DragValue::new(aantal).speed(1.0).range(0..=100000).ui(ui);
+                    }
+                    ProjectLijn::Zaagdeel {
+                        profiel_id,
+                        lengte_mm,
+                        aantal,
+                        ..
+                    } => {
+                        let mut gekozen = profiel_id.clone().unwrap_or_default();
+                        egui::ComboBox::from_id_salt(format!("prof_{lijn_id}"))
+                            .selected_text(
+                                catalogus
+                                    .profielen
+                                    .iter()
+                                    .find(|p| Some(&p.id) == profiel_id.as_ref())
+                                    .map(|p| p.naam())
+                                    .unwrap_or_else(|| "– kies –".to_string()),
+                            )
+                            .show_ui(ui, |ui| {
+                                for p in &catalogus.profielen {
+                                    ui.selectable_value(&mut gekozen, p.id.clone(), p.naam());
+                                }
+                            });
+                        if gekozen != profiel_id.as_deref().unwrap_or("")
+                            || (profiel_id.is_none() && !gekozen.is_empty())
+                        {
+                            *profiel_id = Some(gekozen);
+                        }
+                        egui::DragValue::new(lengte_mm)
+                            .speed(10.0)
+                            .range(0..=100000)
+                            .ui(ui);
+                        egui::DragValue::new(aantal).speed(1.0).range(0..=100000).ui(ui);
+                    }
+                }
+                if ui.button("Verwijder").clicked() {
+                    verwijder = Some(lijn_id);
+                }
                 ui.end_row();
-                let mut verwijder: Option<String> = None;
-                let len = self.project.len();
-                for i in 0..len {
-                    let lijn_id = self.project[i].id().to_string();
-                    let is_zaagdeel = matches!(self.project[i], ProjectLijn::Zaagdeel { .. });
-                    let mut nieuw_type_zaagdeel = is_zaagdeel;
-                    egui::ComboBox::from_id_salt(format!("type_{lijn_id}"))
-                        .selected_text(if is_zaagdeel { "Zaagdeel" } else { "Per stuk" })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut nieuw_type_zaagdeel, true, "Zaagdeel");
-                            ui.selectable_value(&mut nieuw_type_zaagdeel, false, "Per stuk");
-                        });
-                    if nieuw_type_zaagdeel != is_zaagdeel {
-                        let id = lijn_id.clone();
-                        if let Some(l) = self.project.iter_mut().find(|l| l.id() == id) {
-                            *l = if nieuw_type_zaagdeel {
-                                ProjectLijn::Zaagdeel {
-                                    id,
-                                    profiel_id: self.catalogus.profielen.first().map(|p| p.id.clone()),
-                                    lengte_mm: 0,
-                                    aantal: 1,
-                                }
-                            } else {
-                                ProjectLijn::PerStuk {
-                                    id,
-                                    materiaal_id: self.catalogus.per_stuk.first().map(|m| m.id.clone()),
-                                    aantal: 1,
-                                }
-                            };
-                        }
-                    }
-                    match &mut self.project[i] {
-                        ProjectLijn::PerStuk {
-                            materiaal_id, aantal, ..
-                        } => {
-                            let mut gekozen = materiaal_id.clone().unwrap_or_default();
-                            egui::ComboBox::from_id_salt(format!("mat_{lijn_id}"))
-                                .selected_text(
-                                    self.catalogus
-                                        .per_stuk
-                                        .iter()
-                                        .find(|m| Some(&m.id) == materiaal_id.as_ref())
-                                        .map(|m| m.naam.clone())
-                                        .unwrap_or_else(|| "– kies –".to_string()),
-                                )
-                                .show_ui(ui, |ui| {
-                                    for m in &self.catalogus.per_stuk {
-                                        ui.selectable_value(&mut gekozen, m.id.clone(), &m.naam);
-                                    }
-                                });
-                            if gekozen != materiaal_id.as_deref().unwrap_or("") || (materiaal_id.is_none() && !gekozen.is_empty()) {
-                                *materiaal_id = Some(gekozen);
-                            }
-                            ui.label("–");
-                            egui::DragValue::new(aantal).speed(1.0).range(0..=100000).ui(ui);
-                        }
-                        ProjectLijn::Zaagdeel {
-                            profiel_id,
-                            lengte_mm,
-                            aantal,
-                            ..
-                        } => {
-                            let mut gekozen = profiel_id.clone().unwrap_or_default();
-                            egui::ComboBox::from_id_salt(format!("prof_{lijn_id}"))
-                                .selected_text(
-                                    self.catalogus
-                                        .profielen
-                                        .iter()
-                                        .find(|p| Some(&p.id) == profiel_id.as_ref())
-                                        .map(|p| p.naam())
-                                        .unwrap_or_else(|| "– kies –".to_string()),
-                                )
-                                .show_ui(ui, |ui| {
-                                    for p in &self.catalogus.profielen {
-                                        ui.selectable_value(&mut gekozen, p.id.clone(), p.naam());
-                                    }
-                                });
-                            if gekozen != profiel_id.as_deref().unwrap_or("") || (profiel_id.is_none() && !gekozen.is_empty()) {
-                                *profiel_id = Some(gekozen);
-                            }
-                            egui::DragValue::new(lengte_mm)
-                                .speed(10.0)
-                                .range(0..=100000)
-                                .ui(ui);
-                            egui::DragValue::new(aantal).speed(1.0).range(0..=100000).ui(ui);
-                        }
-                    }
-                    if ui.button("Verwijder").clicked() {
-                        verwijder = Some(lijn_id);
-                    }
-                    ui.end_row();
-                }
-                if let Some(id) = verwijder {
-                    self.project.retain(|l| l.id() != id);
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui.button("+ Per stuk toevoegen").clicked() {
-                    self.project.push(ProjectLijn::PerStuk {
-                        id: nieuw_id(),
-                        materiaal_id: self.catalogus.per_stuk.first().map(|m| m.id.clone()),
-                        aantal: 1,
-                    });
-                }
-                if ui.button("+ Zaagdeel toevoegen").clicked() {
-                    self.project.push(ProjectLijn::Zaagdeel {
-                        id: nieuw_id(),
-                        profiel_id: self.catalogus.profielen.first().map(|p| p.id.clone()),
-                        lengte_mm: 0,
-                        aantal: 1,
-                    });
-                }
-            });
+            }
+            if let Some(id) = verwijder {
+                regels.retain(|l| l.id() != id);
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui.button("+ Per stuk toevoegen").clicked() {
+                regels.push(ProjectLijn::PerStuk {
+                    id: nieuw_id(),
+                    materiaal_id: catalogus.per_stuk.first().map(|m| m.id.clone()),
+                    aantal: 1,
+                });
+            }
+            if ui.button("+ Zaagdeel toevoegen").clicked() {
+                regels.push(ProjectLijn::Zaagdeel {
+                    id: nieuw_id(),
+                    profiel_id: catalogus.profielen.first().map(|p| p.id.clone()),
+                    lengte_mm: 0,
+                    aantal: 1,
+                });
+            }
         });
     }
 
+    fn tab_project(&mut self, ui: &mut egui::Ui) {
+        let Some(pos) = self
+            .huidig_project
+            .as_ref()
+            .and_then(|id| self.projecten.iter().position(|p| &p.id == id))
+        else {
+            ui.heading("Project");
+            ui.label("Geen project geopend. Kies een project in het tabblad Projecten of maak een nieuw project aan.");
+            if ui.button("Naar Projecten").clicked() {
+                self.tab = Tab::Projecten;
+            }
+            return;
+        };
+        let naam = self.projecten[pos].naam.clone();
+        ui.heading(format!("Project: {naam}"));
+        ui.label("Benodigde onderdelen voor dit project.");
+        ui.add_space(4.0);
+        let regels = &mut self.projecten[pos].regels;
+        Self::regels_editor(&self.catalogus, ui, regels);
+    }
+
     fn tab_calculatie(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        let Some(project) = self.huidig_project() else {
             ui.heading("Calculatie");
-            let res = bereken_project(&self.catalogus, &self.project);
-            ui.label(format!(
-                "Zaagsnede per snede: {} mm — bij n delen uit één plank zijn er n−1 zaagsnedes nodig.",
-                res.zaagsnede_mm
-            ));
-            ui.separator();
+            ui.label("Geen project geopend. Kies een project in het tabblad Projecten.");
+            return;
+        };
+        let regels = project.regels.clone();
+        let naam = project.naam.clone();
+        ui.heading(format!("Calculatie: {naam}"));
+        let res = bereken_project(&self.catalogus, &regels);
+        ui.label(format!(
+            "Zaagsnede per snede: {} mm — bij n delen uit één plank zijn er n−1 zaagsnedes nodig.",
+            res.zaagsnede_mm
+        ));
+        ui.separator();
+        egui::ScrollArea::vertical().show(ui, |ui| {
             if !res.zaag_resultaten.is_empty() {
                 ui.heading("Zaagdelen per profiel");
                 for zr in &res.zaag_resultaten {
@@ -616,7 +768,7 @@ impl App {
             }
             if !res.per_stuk.is_empty() {
                 ui.heading("Producten per stuk");
-                egui::Grid::new("calc_per_stuk").show(ui, |ui| {
+                egui::Grid::new("calc_per_stuk").striped(true).show(ui, |ui| {
                     ui.label(egui::RichText::new("Naam").strong());
                     ui.label(egui::RichText::new("Aantal").strong());
                     ui.label(egui::RichText::new("Prijs/stuk").strong());
@@ -632,7 +784,11 @@ impl App {
                 });
                 ui.separator();
             }
-            ui.label(egui::RichText::new(format!("Totaal exclusief BTW: {}", self.fmt_bedrag(res.totaal_excl))).strong());
+            ui.label(
+                egui::RichText::new(format!("Totaal exclusief BTW: {}", self.fmt_bedrag(res.totaal_excl)))
+                    .strong()
+                    .size(16.0),
+            );
             ui.label(format!(
                 "BTW ({:.1}%): {}",
                 self.catalogus.instellingen.btw_pct,
@@ -641,43 +797,54 @@ impl App {
             ui.label(
                 egui::RichText::new(format!("Totaal inclusief BTW: {}", self.fmt_bedrag(res.totaal_incl)))
                     .strong()
-                    .size(18.0),
+                    .size(20.0)
+                    .color(ACCENT),
             );
         });
     }
 }
 
-fn value_is_legacy(path: &std::path::Path) -> bool {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .map(|v| v.get("per_stuk").is_some() || v.get("profielen").is_some())
-        .unwrap_or(false)
-}
-
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("header").show(ctx, |ui| {
-            self.header(ui);
-        });
-        egui::CentralPanel::default().show(ctx, |ui| match self.tab {
-            Tab::Materialen => self.tab_materialen(ui),
-            Tab::Project => self.tab_project(ui),
-            Tab::Calculatie => self.tab_calculatie(ui),
-        });
+        self.sidebar(ctx);
+        egui::TopBottomPanel::top("topbar")
+            .frame(egui::Frame::default().fill(PANEL_BG).inner_margin(egui::Margin::symmetric(14.0, 8.0)))
+            .show(ctx, |ui| {
+                self.topbar(ui);
+            });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(PANEL_BG).inner_margin(egui::Margin::same(14.0)))
+            .show(ctx, |ui| match self.tab {
+                Tab::Projecten => self.tab_projecten(ui),
+                Tab::Materialen => self.tab_materialen(ui),
+                Tab::Project => self.tab_project(ui),
+                Tab::Calculatie => self.tab_calculatie(ui),
+            });
     }
 }
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1100.0, 750.0])
-            .with_min_inner_size([900.0, 600.0]),
+            .with_inner_size([1180.0, 780.0])
+            .with_min_inner_size([960.0, 620.0]),
         ..Default::default()
     };
     eframe::run_native(
         "Speeltoestel Calculator",
         options,
-        Box::new(|_cc| Ok(Box::new(App::default()))),
+        Box::new(|cc| {
+            let mut visuals = egui::Visuals::dark();
+            visuals.panel_fill = PANEL_BG;
+            visuals.selection.bg_fill = ACCENT;
+            visuals.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
+            visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.active.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.open.rounding = egui::Rounding::same(8.0);
+            cc.egui_ctx.set_visuals(visuals);
+            Ok(Box::new(App::default()))
+        }),
     )
 }

@@ -60,9 +60,8 @@ mod tests {
         assert!(optimaliseer_profiel(&[100], &[], 3).is_none());
     }
 
-    #[test]
-    fn bereken_project_totaal() {
-        let data = Data {
+    fn test_catalogus() -> Catalogus {
+        Catalogus {
             versie: 1,
             instellingen: Instellingen {
                 zaagsnede_mm: 3.0,
@@ -85,21 +84,26 @@ mod tests {
                     prijs: 40.0,
                 }],
             }],
-            project: vec![
-                ProjectLijn::PerStuk {
-                    id: "l1".into(),
-                    materiaal_id: Some("s1".into()),
-                    aantal: 10,
-                },
-                ProjectLijn::Zaagdeel {
-                    id: "l2".into(),
-                    profiel_id: Some("p1".into()),
-                    lengte_mm: 1000,
-                    aantal: 2,
-                },
-            ],
-        };
-        let res = bereken_project(&data);
+        }
+    }
+
+    #[test]
+    fn bereken_project_totaal() {
+        let catalogus = test_catalogus();
+        let project = vec![
+            ProjectLijn::PerStuk {
+                id: "l1".into(),
+                materiaal_id: Some("s1".into()),
+                aantal: 10,
+            },
+            ProjectLijn::Zaagdeel {
+                id: "l2".into(),
+                profiel_id: Some("p1".into()),
+                lengte_mm: 1000,
+                aantal: 2,
+            },
+        ];
+        let res = bereken_project(&catalogus, &project);
         assert_eq!(res.zaag_resultaten[0].resultaat.as_ref().unwrap().aantal, 2);
         assert_eq!(res.zaag_resultaten[0].kosten, 80.0);
         assert_eq!(res.totaal_excl, 85.0);
@@ -109,45 +113,77 @@ mod tests {
 
     #[test]
     fn bereken_project_deel_past_nergens() {
-        let data = Data {
-            versie: 1,
-            instellingen: Instellingen {
-                zaagsnede_mm: 3.0,
-                btw_pct: 21.0,
-                munt: "EUR".to_string(),
-            },
-            per_stuk: vec![],
-            profielen: vec![Profiel {
-                id: "p1".into(),
-                houtsoort: "Vuren".into(),
-                dikte_mm: 20,
-                breedte_mm: 100,
-                inkoop: vec![InkoopOptie {
-                    lengte_mm: 1000,
-                    prijs: 5.0,
-                }],
+        let mut catalogus = Catalogus::default();
+        catalogus.per_stuk.clear();
+        catalogus.profielen = vec![Profiel {
+            id: "p1".into(),
+            houtsoort: "Vuren".into(),
+            dikte_mm: 20,
+            breedte_mm: 100,
+            inkoop: vec![InkoopOptie {
+                lengte_mm: 1000,
+                prijs: 5.0,
             }],
-            project: vec![ProjectLijn::Zaagdeel {
-                id: "l1".into(),
-                profiel_id: Some("p1".into()),
-                lengte_mm: 1500,
-                aantal: 1,
-            }],
-        };
-        let res = bereken_project(&data);
+        }];
+        let project = vec![ProjectLijn::Zaagdeel {
+            id: "l1".into(),
+            profiel_id: Some("p1".into()),
+            lengte_mm: 1500,
+            aantal: 1,
+        }];
+        let res = bereken_project(&catalogus, &project);
         assert!(res.zaag_resultaten[0].resultaat.is_none());
         assert_eq!(res.totaal_excl, 0.0);
     }
 
     #[test]
-    fn json_roundtrip_van_standaard_data() {
-        let data = Data::default();
-        let json = serde_json::to_string_pretty(&data).unwrap();
-        let terug: Data = serde_json::from_str(&json).unwrap();
+    fn json_roundtrip_catalogus_en_project() {
+        let catalogus = Catalogus::default();
+        let json = serde_json::to_string_pretty(&catalogus).unwrap();
+        let terug: Catalogus = serde_json::from_str(&json).unwrap();
         assert_eq!(terug.per_stuk.len(), 2);
         assert_eq!(terug.profielen.len(), 1);
-        assert_eq!(terug.project.len(), 2);
-        let res = bereken_project(&terug);
+
+        let project = ProjectData {
+            versie: 1,
+            project: vec![
+                ProjectLijn::Zaagdeel {
+                    id: "l1".into(),
+                    profiel_id: Some("p1".into()),
+                    lengte_mm: 1000,
+                    aantal: 2,
+                },
+                ProjectLijn::PerStuk {
+                    id: "l2".into(),
+                    materiaal_id: Some("s1".into()),
+                    aantal: 24,
+                },
+            ],
+        };
+        let pjson = serde_json::to_string_pretty(&project).unwrap();
+        let pterug: ProjectData = serde_json::from_str(&pjson).unwrap();
+        assert_eq!(pterug.project.len(), 2);
+        let res = bereken_project(&terug, &pterug.project);
         assert!(res.totaal_excl > 0.0);
+    }
+
+    #[test]
+    fn legacy_gecombineerd_bestand_wordt_gesplitst() {
+        // Oude bestanden bevatten catalogus + project in één JSON.
+        let legacy = r#"{
+            "versie": 1,
+            "instellingen": { "zaagsnede_mm": 3, "btw_pct": 21, "munt": "EUR" },
+            "per_stuk": [{ "id": "s1", "naam": "Schroef", "prijs": 0.5, "info": "" }],
+            "profielen": [{ "id": "p1", "houtsoort": "Robinia", "dikte_mm": 45, "breedte_mm": 120,
+                            "inkoop": [{ "lengte_mm": 2000, "prijs": 40 }] }],
+            "project": [{ "id": "l1", "type": "zaagdeel", "profiel_id": "p1", "lengte_mm": 1000, "aantal": 2 }]
+        }"#;
+        let value: serde_json::Value = serde_json::from_str(legacy).unwrap();
+        let catalogus: Catalogus = serde_json::from_value(value.clone()).unwrap();
+        let project: ProjectData = serde_json::from_value(value).unwrap();
+        assert_eq!(catalogus.profielen.len(), 1);
+        assert_eq!(project.project.len(), 1);
+        let res = bereken_project(&catalogus, &project.project);
+        assert_eq!(res.zaag_resultaten[0].kosten, 80.0);
     }
 }

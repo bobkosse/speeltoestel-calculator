@@ -1,4 +1,4 @@
-use crate::model::{Data, Profiel};
+use crate::model::{Catalogus, Profiel, ProjectLijn};
 
 const FFD_LIMIET: usize = 40;
 
@@ -175,23 +175,23 @@ pub struct ZaagResultaat {
     pub kosten: f64,
 }
 
-pub fn bereken_project(data: &Data) -> Berekening {
-    let zaagsnede = data.instellingen.zaagsnede_mm.round() as i64;
-    let btw_pct = data.instellingen.btw_pct;
+pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Berekening {
+    let zaagsnede = catalogus.instellingen.zaagsnede_mm.round() as i64;
+    let btw_pct = catalogus.instellingen.btw_pct;
 
     let mut per_stuk: Vec<PerStukKosten> = Vec::new();
     let mut zaag_groepen: Vec<(String, Vec<i64>)> = Vec::new();
 
-    for lijn in &data.project {
+    for lijn in project {
         match lijn {
-            crate::model::ProjectLijn::PerStuk {
+            ProjectLijn::PerStuk {
                 materiaal_id,
                 aantal,
                 ..
             } => {
                 if let Some(m) = materiaal_id
                     .as_ref()
-                    .and_then(|id| data.per_stuk.iter().find(|m| &m.id == id))
+                    .and_then(|id| catalogus.per_stuk.iter().find(|m| &m.id == id))
                 {
                     per_stuk.push(PerStukKosten {
                         naam: m.naam.clone(),
@@ -201,7 +201,7 @@ pub fn bereken_project(data: &Data) -> Berekening {
                     });
                 }
             }
-            crate::model::ProjectLijn::Zaagdeel {
+            ProjectLijn::Zaagdeel {
                 profiel_id,
                 lengte_mm,
                 aantal,
@@ -222,7 +222,7 @@ pub fn bereken_project(data: &Data) -> Berekening {
     let mut zaag_resultaten: Vec<ZaagResultaat> = Vec::new();
     let mut totaal = 0.0;
     for (pid, lengtes) in zaag_groepen {
-        let Some(profiel) = data.profielen.iter().find(|p| p.id == pid).cloned() else {
+        let Some(profiel) = catalogus.profielen.iter().find(|p| p.id == pid).cloned() else {
             continue;
         };
         let inkoop: Vec<(i64, f64)> = profiel

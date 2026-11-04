@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+/// Gedeelde materialenbibliotheek: instellingen + per stuk + profielen.
+/// Wordt los van projecten opgeslagen (bijv. materialen.json).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Data {
+pub struct Catalogus {
+    #[serde(default = "een")]
     pub versie: u32,
     #[serde(default = "standaard_instellingen")]
     pub instellingen: Instellingen,
@@ -9,8 +12,19 @@ pub struct Data {
     pub per_stuk: Vec<PerStuk>,
     #[serde(default)]
     pub profielen: Vec<Profiel>,
+}
+
+/// Projectbestand: alleen de benodigde onderdelen.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectData {
+    #[serde(default = "een")]
+    pub versie: u32,
     #[serde(default)]
     pub project: Vec<ProjectLijn>,
+}
+
+fn een() -> u32 {
+    1
 }
 
 fn standaard_instellingen() -> Instellingen {
@@ -21,9 +35,9 @@ fn standaard_instellingen() -> Instellingen {
     }
 }
 
-impl Default for Data {
+impl Default for Catalogus {
     fn default() -> Self {
-        Data {
+        Catalogus {
             versie: 1,
             instellingen: standaard_instellingen(),
             per_stuk: vec![
@@ -50,19 +64,6 @@ impl Default for Data {
                     prijs: 48.50,
                 }],
             }],
-            project: vec![
-                ProjectLijn::Zaagdeel {
-                    id: "l1".to_string(),
-                    profiel_id: Some("p1".to_string()),
-                    lengte_mm: 1000,
-                    aantal: 2,
-                },
-                ProjectLijn::PerStuk {
-                    id: "l2".to_string(),
-                    materiaal_id: Some("s1".to_string()),
-                    aantal: 24,
-                },
-            ],
         }
     }
 }

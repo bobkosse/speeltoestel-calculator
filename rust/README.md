@@ -16,7 +16,12 @@ Het JSON-bestandsformaat is identiek aan de Electron-versie, dus bestanden zijn 
 - **Calculatie** — automatisch de goedkoopste inkoop, mét zaagsnede: n delen uit één plank
   kosten `som(lengtes) + (n−1) × zaagsnede` (2 × 1000 mm past dus niet in een 2 m plank).
   Per profiel zie je het zaagplan en het restafval. Prijzen excl. BTW, plus totaal incl. BTW.
-- **Bestand** — Nieuw / Openen… / Opslaan / Opslaan als… (JSON).
+- **Bestanden (gesplitst)** —
+  - *Materialenbibliotheek* (`materialen.json`): instellingen, producten per stuk en profielen.
+    Deze hou je **één keer** bij en deel je tussen alle projecten via Openen…/Opslaan.
+  - *Project* (`speeltoestel-project.json`): alleen de benodigde onderdelen. Per project
+    Nieuw/Openen…/Opslaan/Opslaan als…. Oude bestanden met materialen + project in één bestand
+    worden automatisch gesplitst bij het openen.
 
 ## Bouwen en draaien
 
@@ -44,3 +49,5 @@ rust/
   core/    datamodel (serde) + zaagoptimalisatie + tests
   app/     egui-interface (main.rs)
 ```
+
+Bestandsformaten: `Catalogus` (materialenbibliotheek) en `ProjectData` (project), zie `core/src/model.rs`.

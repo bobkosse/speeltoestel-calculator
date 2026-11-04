@@ -30,13 +30,6 @@ fn danger_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
     )
 }
 
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
 fn datum_vandaag() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -915,149 +908,237 @@ impl App {
         });
     }
 
-    fn bom_html(&self, project_naam: &str, res: &Berekening) -> String {
-        let mut bom_rows = String::new();
+    fn maak_pdf(&self, project_naam: &str, res: &Berekening) -> Result<Vec<u8>, String> {
+        use printpdf::*;
+
+        const PAGE_W: f64 = 210.0;
+        const PAGE_H: f64 = 297.0;
+        const MARGIN: f64 = 15.0;
+        const ROW_H: f64 = 7.0;
+
+        let zwart = Color::Rgb(Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None });
+        let accent = Color::Rgb(Rgb { r: 0.63, g: 0.38, b: 0.18, icc_profile: None });
+        let grijs = Color::Rgb(Rgb { r: 0.45, g: 0.45, b: 0.45, icc_profile: None });
+
+        struct Bouwer {
+            ops: Vec<Op>,
+            y: f64,
+            zwart: Color,
+            accent: Color,
+        }
+        impl Bouwer {
+            fn new_page(&mut self, pages: &mut Vec<PdfPage>) {
+                if !self.ops.is_empty() {
+                    pages.push(PdfPage::new(Mm(PAGE_W as f32), Mm(PAGE_H as f32), std::mem::take(&mut self.ops)));
+                }
+                self.y = MARGIN;
+            }
+            fn ensure(&mut self, h: f64, pages: &mut Vec<PdfPage>) {
+                if self.y + h > PAGE_H - MARGIN {
+                    self.new_page(pages);
+                }
+            }
+            fn tekst(&mut self, s: &str, x: f64, size: f64, bold: bool, kleur: &Color) {
+                let font = if bold { BuiltinFont::HelveticaBold } else { BuiltinFont::Helvetica };
+                self.ops.push(Op::StartTextSection);
+                self.ops.push(Op::SetTextCursor {
+                    pos: Point::new(Mm(x as f32), Mm((PAGE_H - self.y - size * 0.35) as f32)),
+                });
+                self.ops.push(Op::SetFontSizeBuiltinFont { size: Pt(size as f32), font });
+                self.ops.push(Op::SetFillColor { col: kleur.clone() });
+                self.ops.push(Op::WriteTextBuiltinFont {
+                    items: vec![TextItem::Text(s.to_string())],
+                    font,
+                });
+                self.ops.push(Op::EndTextSection);
+            }
+            fn lijn(&mut self, x1: f64, y1: f64, x2: f64, y2: f64) {
+                self.ops.push(Op::SetOutlineColor { col: self.zwart.clone() });
+                self.ops.push(Op::SetOutlineThickness { pt: Pt(0.4) });
+                self.ops.push(Op::DrawLine {
+                    line: Line {
+                        points: vec![
+                            LinePoint { p: Point::new(Mm(x1 as f32), Mm((PAGE_H - y1) as f32)), bezier: false },
+                            LinePoint { p: Point::new(Mm(x2 as f32), Mm((PAGE_H - y2) as f32)), bezier: false },
+                        ],
+                        ..Default::default()
+                    },
+                });
+            }
+            fn tabel(&mut self, pages: &mut Vec<PdfPage>, cols: &[(f64, &str)], rows: &[Vec<String>], totaal: Option<Vec<String>>) {
+                let x0 = MARGIN;
+                let totaal_w: f64 = cols.iter().map(|(w, _)| w).sum();
+                self.ensure(ROW_H, pages);
+                let yh = self.y;
+                let mut x = x0;
+                for (w, h) in cols {
+                    self.tekst(h, x + 1.5, 9.0, true, &self.zwart.clone());
+                    x += w;
+                }
+                self.y += ROW_H;
+                self.lijn(x0, yh, x0 + totaal_w, yh);
+                self.lijn(x0, self.y, x0 + totaal_w, self.y);
+                let mut x = x0;
+                for (w, _) in cols {
+                    self.lijn(x, yh, x, self.y);
+                    x += w;
+                }
+                self.lijn(x0 + totaal_w, yh, x0 + totaal_w, self.y);
+                for row in rows {
+                    self.ensure(ROW_H, pages);
+                    let yr = self.y;
+                    let mut x = x0;
+                    for (i, (w, _)) in cols.iter().enumerate() {
+                        self.tekst(&row[i], x + 1.5, 8.5, false, &self.zwart.clone());
+                        x += w;
+                    }
+                    self.y += ROW_H;
+                    self.lijn(x0, self.y, x0 + totaal_w, self.y);
+                    let mut x = x0;
+                    for (w, _) in cols {
+                        self.lijn(x, yr, x, self.y);
+                        x += w;
+                    }
+                    self.lijn(x0 + totaal_w, yr, x0 + totaal_w, self.y);
+                }
+                if let Some(t) = totaal {
+                    self.ensure(ROW_H, pages);
+                    let yr = self.y;
+                    let mut x = x0;
+                    for (i, (w, _)) in cols.iter().enumerate() {
+                        self.tekst(&t[i], x + 1.5, 9.5, true, &self.accent.clone());
+                        x += w;
+                    }
+                    self.y += ROW_H;
+                    self.lijn(x0, yr, x0 + totaal_w, yr);
+                    self.lijn(x0, self.y, x0 + totaal_w, self.y);
+                }
+            }
+        }
+
+        let mut pages: Vec<PdfPage> = Vec::new();
+        let mut b = Bouwer { ops: Vec::new(), y: MARGIN, zwart: zwart.clone(), accent: accent.clone() };
+
+        b.tekst(&format!("Bill of Materials — {project_naam}"), MARGIN, 16.0, true, &accent);
+        b.y += 10.0;
+        b.tekst(
+            &format!(
+                "Gegenereerd op {} · Zaagsnede {} mm per zaagdeel · Alle prijzen excl. BTW",
+                datum_vandaag(),
+                res.zaagsnede_mm
+            ),
+            MARGIN,
+            8.0,
+            false,
+            &grijs,
+        );
+        b.y += 9.0;
+
+        b.tekst("Aan te schaffen", MARGIN, 12.0, true, &zwart);
+        b.y += 8.0;
+        let bom_cols = [(55.0, "Artikel"), (50.0, "Specificatie"), (18.0, "Aantal"), (28.0, "Prijs/stuk"), (29.0, "Bedrag")];
+        let mut bom_rows: Vec<Vec<String>> = Vec::new();
         for zr in &res.zaag_resultaten {
             match &zr.resultaat {
                 Some(r) => {
                     for (lengte, prijs, aantal, bedrag) in &r.per_lengte {
-                        bom_rows.push_str(&format!(
-                            "<tr><td>{}</td><td>{} mm</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                            html_escape(&zr.profiel.naam()),
-                            lengte,
-                            aantal,
+                        bom_rows.push(vec![
+                            zr.profiel.naam(),
+                            format!("{lengte} mm"),
+                            aantal.to_string(),
                             self.fmt_bedrag(*prijs),
-                            self.fmt_bedrag(*bedrag)
-                        ));
+                            self.fmt_bedrag(*bedrag),
+                        ]);
                     }
                 }
-                None => {
-                    bom_rows.push_str(&format!(
-                        "<tr><td>{}</td><td colspan=\"4\" style=\"color:#B3261E\">geen passende inkooplengte</td></tr>",
-                        html_escape(&zr.profiel.naam())
-                    ));
-                }
+                None => bom_rows.push(vec![
+                    zr.profiel.naam(),
+                    "geen passende inkooplengte".to_string(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                ]),
             }
         }
         for l in &res.per_stuk {
-            let spec = if l.eenheid.is_empty() {
-                format!("per stuk (nodig {})", l.aantal)
+            let (spec, aantal, prijs) = if l.eenheid.is_empty() {
+                (format!("per stuk (nodig {})", l.aantal), l.inkoop_aantal.to_string(), self.fmt_bedrag(l.prijs_per_stuk))
             } else {
-                format!(
-                    "nodig {} stuks · per {} {}",
-                    l.aantal, l.aantal_per_eenheid, l.eenheid
+                (
+                    format!("nodig {} stuks · per {} {}", l.aantal, l.aantal_per_eenheid, l.eenheid),
+                    format!("{} {}", l.inkoop_aantal, l.eenheid),
+                    self.fmt_bedrag(l.prijs_per_eenheid),
                 )
             };
-            let aantal = if l.eenheid.is_empty() {
-                l.inkoop_aantal.to_string()
-            } else {
-                format!("{} {}", l.inkoop_aantal, l.eenheid)
-            };
-            let prijs = if l.eenheid.is_empty() {
-                self.fmt_bedrag(l.prijs_per_stuk)
-            } else {
-                self.fmt_bedrag(l.prijs_per_eenheid)
-            };
-            bom_rows.push_str(&format!(
-                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                html_escape(&l.naam),
-                html_escape(&spec),
-                aantal,
-                prijs,
-                self.fmt_bedrag(l.kosten)
-            ));
+            bom_rows.push(vec![l.naam.clone(), spec, aantal, prijs, self.fmt_bedrag(l.kosten)]);
         }
+        let totaal_row = vec![
+            "Totaal (excl. BTW)".to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+            self.fmt_bedrag(res.totaal_excl),
+        ];
+        b.tabel(&mut pages, &bom_cols, &bom_rows, Some(totaal_row));
+        b.y += 6.0;
 
-        let mut zaag_rows = String::new();
+        b.tekst("Zaagplan", MARGIN, 12.0, true, &zwart);
+        b.y += 8.0;
+        let zaag_cols = [(60.0, "Profiel"), (35.0, "Plank"), (55.0, "Te zagen"), (30.0, "Reststuk")];
+        let mut zaag_rows: Vec<Vec<String>> = Vec::new();
         for zr in &res.zaag_resultaten {
             if let Some(r) = &zr.resultaat {
                 for (i, bak) in r.bakken.iter().enumerate() {
                     let stukken: Vec<String> = bak.stukken.iter().map(|s| format!("{s} mm")).collect();
-                    zaag_rows.push_str(&format!(
-                        "<tr><td>{}</td><td>{} ({} mm)</td><td>{}</td><td>{} mm</td></tr>",
-                        html_escape(&zr.profiel.naam()),
-                        i + 1,
-                        bak.lengte,
-                        html_escape(&stukken.join(" + ")),
-                        bak.rest
-                    ));
+                    zaag_rows.push(vec![
+                        zr.profiel.naam(),
+                        format!("{} ({} mm)", i + 1, bak.lengte),
+                        stukken.join(" + "),
+                        format!("{} mm", bak.rest),
+                    ]);
                 }
             }
         }
         if zaag_rows.is_empty() {
-            zaag_rows = "<tr><td colspan=\"4\">Geen zaagdelen in dit project.</td></tr>".to_string();
+            zaag_rows.push(vec!["Geen zaagdelen in dit project.".to_string(), String::new(), String::new(), String::new()]);
         }
+        b.tabel(&mut pages, &zaag_cols, &zaag_rows, None);
 
-        format!(
-            r#"<!DOCTYPE html>
-<html lang="nl">
-<head>
-<meta charset="utf-8">
-<title>Bill of Materials — {naam}</title>
-<style>
-body {{ font-family: -apple-system, "Segoe UI", Arial, sans-serif; margin: 32px; color: #111; }}
-h1 {{ font-size: 22px; color: #A0622D; }}
-h2 {{ font-size: 17px; margin-top: 28px; }}
-table {{ border-collapse: collapse; width: 100%; margin-top: 8px; }}
-th, td {{ border: 1px solid #ccc; padding: 6px 10px; text-align: left; }}
-th {{ background: #F0EAE2; }}
-.totaal td {{ font-weight: bold; font-size: 17px; color: #A0622D; border-top: 2px solid #A0622D; }}
-button {{ font-size: 15px; padding: 8px 16px; background: #A0622D; color: #fff; border: none; border-radius: 8px; cursor: pointer; }}
-.meta {{ color: #666; font-size: 13px; }}
-@media print {{ button {{ display: none; }} body {{ margin: 0; }} }}
-</style>
-</head>
-<body>
-<button onclick="window.print()">Afdrukken</button>
-<h1>Bill of Materials — {naam}</h1>
-<p class="meta">Gegenereerd op {datum} · Zaagsnede: {zaagsnede} mm per zaagdeel · Alle prijzen excl. BTW</p>
-<h2>Aan te schaffen</h2>
-<table>
-<tr><th>Artikel</th><th>Specificatie</th><th>Aantal</th><th>Prijs/stuk</th><th>Bedrag</th></tr>
-{bom_rows}
-<tr class="totaal"><td>Totaal (excl. BTW)</td><td></td><td></td><td></td><td>{totaal}</td></tr>
-</table>
-<h2>Zaagplan</h2>
-<table>
-<tr><th>Profiel</th><th>Plank</th><th>Te zagen</th><th>Reststuk</th></tr>
-{zaag_rows}
-</table>
-</body>
-</html>"#,
-            naam = html_escape(project_naam),
-            datum = datum_vandaag(),
-            zaagsnede = res.zaagsnede_mm,
-            bom_rows = bom_rows,
-            totaal = self.fmt_bedrag(res.totaal_excl),
-            zaag_rows = zaag_rows
-        )
+        b.new_page(&mut pages);
+        let mut doc = PdfDocument::new("Bill of Materials");
+        let bytes = doc
+            .with_pages(pages)
+            .save(&PdfSaveOptions::default(), &mut Vec::new());
+        Ok(bytes)
     }
 
     fn afdrukken(&mut self, project_naam: &str, res: &Berekening) {
-        let html = self.bom_html(project_naam, res);
-        let path = std::env::temp_dir().join("speeltoestel-bom.html");
-        match std::fs::write(&path, html) {
-            Ok(()) => {
+        match self.maak_pdf(project_naam, res) {
+            Ok(bytes) => {
+                let path = std::env::temp_dir().join("speeltoestel-bom.pdf");
+                if let Err(e) = std::fs::write(&path, bytes) {
+                    self.status = format!("PDF wegschrijven mislukt: {e}");
+                    return;
+                }
                 let p = path.to_string_lossy().to_string();
-                let spawned = if cfg!(target_os = "macos") {
-                    std::process::Command::new("open").arg(&p).spawn()
-                } else if cfg!(target_os = "windows") {
-                    std::process::Command::new("cmd").args(["/C", "start", "", &p]).spawn()
+                let print_res = if cfg!(target_os = "windows") {
+                    std::process::Command::new("powershell")
+                        .args([
+                            "-NoProfile",
+                            "-Command",
+                            &format!("Start-Process -FilePath \"{p}\" -Verb Print"),
+                        ])
+                        .spawn()
+                        .map(|_| ())
                 } else {
-                    std::process::Command::new("xdg-open").arg(&p).spawn()
+                    std::process::Command::new("lp").arg(&p).spawn().map(|_| ())
                 };
-                self.status = match spawned {
-                    Ok(_) => format!(
-                        "BOM + zaagplan geopend in de browser — afdrukken met Cmd+P / Ctrl+P ({})",
-                        path.display()
-                    ),
-                    Err(e) => format!(
-                        "Browser openen mislukt: {e} — HTML staat klaar op {}",
-                        path.display()
-                    ),
+                self.status = match print_res {
+                    Ok(()) => format!("PDF direct naar de printer verstuurd — bestand: {p}"),
+                    Err(e) => format!("Direct printen mislukt: {e} — PDF staat klaar op {p}"),
                 };
             }
-            Err(e) => self.status = format!("HTML wegschrijven mislukt: {e}"),
+            Err(e) => self.status = format!("PDF genereren mislukt: {e}"),
         }
     }
 
@@ -1072,7 +1153,7 @@ button {{ font-size: 15px; padding: 8px 16px; background: #A0622D; color: #fff; 
         ui.heading(format!("Calculatie: {naam}"));
         let res = bereken_project(&self.catalogus, &regels);
         ui.horizontal(|ui| {
-            if primary_button(ui, "Afdrukken / exporteren…").clicked() {
+            if primary_button(ui, "Afdrukken (PDF)…").clicked() {
                 self.afdrukken(&naam, &res);
             }
         });
@@ -1242,4 +1323,19 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(app))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use speeltoestel_core::optimizer::bereken_project;
+
+    #[test]
+    fn maak_pdf_geeft_geldige_pdf() {
+        let app = App::default();
+        let res = bereken_project(&app.catalogus, &app.projecten[0].regels);
+        let bytes = app.maak_pdf("Testproject", &res).unwrap();
+        assert!(bytes.starts_with(b"%PDF"));
+        assert!(bytes.len() > 1000);
+    }
 }

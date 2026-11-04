@@ -1166,6 +1166,27 @@ impl App {
         }
     }
 
+    fn pdf_opslaan(&mut self, project_naam: &str, res: &Berekening) {
+        match self.maak_pdf(project_naam, res) {
+            Ok(bytes) => {
+                let pad = rfd::FileDialog::new()
+                    .add_filter("PDF-bestand", &["pdf"])
+                    .set_file_name(format!(
+                        "BOM-{}.pdf",
+                        project_naam.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect::<String>()
+                    ))
+                    .save_file();
+                if let Some(p) = pad {
+                    match std::fs::write(&p, bytes) {
+                        Ok(()) => self.status = format!("PDF opgeslagen: {}", p.display()),
+                        Err(e) => self.status = format!("PDF opslaan mislukt: {e}"),
+                    }
+                }
+            }
+            Err(e) => self.status = format!("PDF genereren mislukt: {e}"),
+        }
+    }
+
     fn laad_printers(&mut self) {
         self.printers.clear();
         self.printer_keuze.clear();
@@ -1284,6 +1305,9 @@ impl App {
         ui.horizontal(|ui| {
             if primary_button(ui, "Afdrukken (PDF)…").clicked() {
                 self.afdrukken(&naam, &res);
+            }
+            if ui.button("PDF opslaan als…").clicked() {
+                self.pdf_opslaan(&naam, &res);
             }
         });
         ui.label(format!(

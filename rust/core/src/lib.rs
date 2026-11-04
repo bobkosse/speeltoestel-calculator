@@ -63,6 +63,16 @@ mod tests {
     }
 
     #[test]
+    fn user_voorbeeld_400_en_2000_goedkoopst_gemengd() {
+        // nodig: 400 mm + 2000 mm; 1 x 2500 mm kost 60, maar 2100 mm (2000+zaagsnede) + 500 mm (400+zaagsnede) = 52
+        let res = optimaliseer_profiel(&[400, 2000], &[(2500, 60.0), (2100, 40.0), (500, 12.0)], 3).unwrap();
+        assert_eq!(res.kosten, 52.0);
+        let mut per_lengte = res.per_lengte.clone();
+        per_lengte.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(per_lengte, vec![(500, 12.0, 1, 12.0), (2100, 40.0, 1, 40.0)]);
+    }
+
+    #[test]
     fn gemengde_lengtes_winnen_als_dat_goedkoper_is() {
         // [2100, 1000, 1000, 1000] met 2000@48.50 en 2500@55, zaagsnede 3:
         // 3 x 2500 = 165,00, maar 2 x 2500 (2100; 1000+1000) + 1 x 2000 (1000) = 158,50

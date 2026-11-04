@@ -11,6 +11,37 @@ static ID_TELLER: AtomicU64 = AtomicU64::new(0);
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(0xA0, 0x62, 0x2D);
 const SIDEBAR_BG: egui::Color32 = egui::Color32::from_rgb(0xF0, 0xEA, 0xE2);
 const PANEL_BG: egui::Color32 = egui::Color32::from_rgb(0xFB, 0xF9, 0xF6);
+const CARD_BG: egui::Color32 = egui::Color32::WHITE;
+const CARD_STROKE: egui::Color32 = egui::Color32::from_rgb(0xE3, 0xDC, 0xD2);
+const DANGER: egui::Color32 = egui::Color32::from_rgb(0xB3, 0x26, 0x1E);
+
+fn primary_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    ui.add(
+        egui::Button::new(egui::RichText::new(text).color(egui::Color32::WHITE))
+            .fill(ACCENT)
+            .min_size(egui::vec2(0.0, 34.0)),
+    )
+}
+
+fn danger_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    ui.add(
+        egui::Button::new(egui::RichText::new(text).color(DANGER))
+            .min_size(egui::vec2(0.0, 34.0)),
+    )
+}
+
+fn card(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::default()
+        .fill(CARD_BG)
+        .stroke(egui::Stroke::new(1.0_f32, CARD_STROKE))
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(egui::Margin::same(18.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add_contents(ui);
+        });
+    ui.add_space(16.0);
+}
 
 fn nieuw_id() -> String {
     let n = ID_TELLER.fetch_add(1, Ordering::SeqCst);
@@ -287,6 +318,7 @@ impl App {
     }
 
     fn tab_projecten(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
         ui.heading("Projecten");
         ui.label("Alle projecten staan in één bestand. Open een project om de onderdelen te bewerken.");
         ui.add_space(6.0);
@@ -299,7 +331,7 @@ impl App {
 
         let mut actie: Option<(&'static str, String)> = None;
         egui::Grid::new("projecten_grid")
-            .striped(true)
+            .striped(true).spacing([14.0, 10.0])
             .show(ui, |ui| {
                 ui.label(egui::RichText::new("Naam").strong());
                 ui.label(egui::RichText::new("Onderdelen").strong());
@@ -312,7 +344,7 @@ impl App {
                     let is_huidig = self.huidig_project.as_deref() == Some(id.as_str());
                     let mut naam = self.projecten[i].naam.clone();
                     egui::TextEdit::singleline(&mut naam)
-                        .desired_width(240.0)
+                        .desired_width(320.0)
                         .ui(ui);
                     if naam != self.projecten[i].naam {
                         self.projecten[i].naam = naam;
@@ -323,10 +355,10 @@ impl App {
                         kost_label.push_str("  (actief)");
                     }
                     ui.label(kost_label);
-                    if ui.button("Openen").clicked() {
+                    if primary_button(ui, "Openen").clicked() {
                         actie = Some(("openen", id.clone()));
                     }
-                    if ui.button("Verwijder").clicked() {
+                    if danger_button(ui, "Verwijder").clicked() {
                         actie = Some(("verwijder", id));
                     }
                     ui.end_row();
@@ -348,10 +380,10 @@ impl App {
         ui.add_space(10.0);
         ui.horizontal(|ui| {
             egui::TextEdit::singleline(&mut self.nieuwe_project_naam)
-                .desired_width(240.0)
+                .desired_width(320.0)
                 .hint_text("Naam nieuw project")
                 .ui(ui);
-            if ui.button("+ Nieuw project").clicked() {
+            if primary_button(ui, "+ Nieuw project").clicked() {
                 let naam = if self.nieuwe_project_naam.trim().is_empty() {
                     format!("Project {}", self.projecten.len() + 1)
                 } else {
@@ -368,9 +400,11 @@ impl App {
                 self.tab = Tab::Project;
             }
         });
+        });
     }
 
     fn tab_materialen(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading("Instellingen");
             ui.horizontal(|ui| {
@@ -386,14 +420,14 @@ impl App {
                     .ui(ui);
                 ui.label("Munt:");
                 egui::TextEdit::singleline(&mut self.catalogus.instellingen.munt)
-                    .desired_width(60.0)
+                    .desired_width(80.0)
                     .ui(ui);
             });
             ui.separator();
 
             ui.heading("Producten per stuk");
             ui.label("Schroeven, bouten, etc. — prijs per stuk, exclusief BTW. Deze bibliotheek deel je tussen alle projecten.");
-            egui::Grid::new("per_stuk_grid").striped(true).show(ui, |ui| {
+            egui::Grid::new("per_stuk_grid").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
                 ui.label(egui::RichText::new("Naam").strong());
                 ui.label(egui::RichText::new("Prijs/stuk").strong());
                 ui.label(egui::RichText::new("Extra info").strong());
@@ -402,16 +436,16 @@ impl App {
                 let mut verwijder: Option<String> = None;
                 for m in self.catalogus.per_stuk.iter_mut() {
                     egui::TextEdit::singleline(&mut m.naam)
-                        .desired_width(200.0)
+                        .desired_width(280.0)
                         .ui(ui);
                     egui::DragValue::new(&mut m.prijs)
                         .speed(0.01)
                         .range(0.0..=100000.0)
                         .ui(ui);
                     egui::TextEdit::singleline(&mut m.info)
-                        .desired_width(220.0)
+                        .desired_width(300.0)
                         .ui(ui);
-                    if ui.button("Verwijder").clicked() {
+                    if danger_button(ui, "Verwijder").clicked() {
                         verwijder = Some(m.id.clone());
                     }
                     ui.end_row();
@@ -430,18 +464,18 @@ impl App {
             });
             ui.horizontal(|ui| {
                 egui::TextEdit::singleline(&mut self.nieuw_per_stuk.0)
-                    .desired_width(200.0)
+                    .desired_width(280.0)
                     .hint_text("Naam")
                     .ui(ui);
                 egui::TextEdit::singleline(&mut self.nieuw_per_stuk.1)
-                    .desired_width(90.0)
+                    .desired_width(110.0)
                     .hint_text("Prijs/stuk")
                     .ui(ui);
                 egui::TextEdit::singleline(&mut self.nieuw_per_stuk.2)
-                    .desired_width(200.0)
+                    .desired_width(280.0)
                     .hint_text("Extra info")
                     .ui(ui);
-                if ui.button("Toevoegen").clicked() {
+                if primary_button(ui, "Toevoegen").clicked() {
                     if !self.nieuw_per_stuk.0.trim().is_empty() {
                         let prijs = Self::parse_getal(&self.nieuw_per_stuk.1);
                         self.catalogus.per_stuk.push(PerStuk {
@@ -470,7 +504,7 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.label("Houtsoort:");
                             egui::TextEdit::singleline(&mut self.catalogus.profielen[pi].houtsoort)
-                                .desired_width(140.0)
+                                .desired_width(180.0)
                                 .ui(ui);
                             ui.label("Dikte (mm):");
                             egui::DragValue::new(&mut self.catalogus.profielen[pi].dikte_mm)
@@ -482,7 +516,7 @@ impl App {
                                 .speed(1.0)
                                 .range(1..=1000)
                                 .ui(ui);
-                            if ui.button("Profiel verwijderen").clicked() {
+                            if danger_button(ui, "Profiel verwijderen").clicked() {
                                 verwijder_profiel = Some(profiel_id.clone());
                             }
                         });
@@ -502,7 +536,7 @@ impl App {
                                     .speed(0.5)
                                     .range(0.0..=1000000.0)
                                     .ui(ui);
-                                if ui.button("Verwijder").clicked() {
+                                if danger_button(ui, "Verwijder").clicked() {
                                     verwijder_inkoop = Some((profiel_id.clone(), oi));
                                 }
                                 ui.end_row();
@@ -510,14 +544,14 @@ impl App {
                         });
                         ui.horizontal(|ui| {
                             egui::TextEdit::singleline(&mut self.nieuw_profiel_inkoop.0)
-                                .desired_width(110.0)
+                                .desired_width(130.0)
                                 .hint_text("Lengte (mm)")
                                 .ui(ui);
                             egui::TextEdit::singleline(&mut self.nieuw_profiel_inkoop.1)
-                                .desired_width(100.0)
+                                .desired_width(120.0)
                                 .hint_text("Prijs")
                                 .ui(ui);
-                            if ui.button("Inkooplengte toevoegen").clicked() {
+                            if primary_button(ui, "Inkooplengte toevoegen").clicked() {
                                 let lengte = Self::parse_getal(&self.nieuw_profiel_inkoop.0) as i64;
                                 let prijs = Self::parse_getal(&self.nieuw_profiel_inkoop.1);
                                 if lengte > 0 {
@@ -549,7 +583,7 @@ impl App {
                     }
                 }
             }
-            if ui.button("+ Profiel toevoegen").clicked() {
+            if primary_button(ui, "+ Profiel toevoegen").clicked() {
                 self.catalogus.profielen.push(Profiel {
                     id: nieuw_id(),
                     houtsoort: "Houtsoort".to_string(),
@@ -562,10 +596,11 @@ impl App {
                 });
             }
         });
+        });
     }
 
     fn regels_editor(catalogus: &Catalogus, ui: &mut egui::Ui, regels: &mut Vec<ProjectLijn>) {
-        egui::Grid::new("project_grid").striped(true).show(ui, |ui| {
+        egui::Grid::new("project_grid").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
             ui.label(egui::RichText::new("Type").strong());
             ui.label(egui::RichText::new("Materiaal / profiel").strong());
             ui.label(egui::RichText::new("Lengte (mm)").strong());
@@ -578,7 +613,7 @@ impl App {
                 let lijn_id = regels[i].id().to_string();
                 let is_zaagdeel = matches!(regels[i], ProjectLijn::Zaagdeel { .. });
                 let mut nieuw_type_zaagdeel = is_zaagdeel;
-                egui::ComboBox::from_id_salt(format!("type_{lijn_id}"))
+                egui::ComboBox::from_id_salt(format!("type_{lijn_id}")).width(150.0)
                     .selected_text(if is_zaagdeel { "Zaagdeel" } else { "Per stuk" })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut nieuw_type_zaagdeel, true, "Zaagdeel");
@@ -608,7 +643,7 @@ impl App {
                         materiaal_id, aantal, ..
                     } => {
                         let mut gekozen = materiaal_id.clone().unwrap_or_default();
-                        egui::ComboBox::from_id_salt(format!("mat_{lijn_id}"))
+                        egui::ComboBox::from_id_salt(format!("mat_{lijn_id}")).width(300.0)
                             .selected_text(
                                 catalogus
                                     .per_stuk
@@ -637,7 +672,7 @@ impl App {
                         ..
                     } => {
                         let mut gekozen = profiel_id.clone().unwrap_or_default();
-                        egui::ComboBox::from_id_salt(format!("prof_{lijn_id}"))
+                        egui::ComboBox::from_id_salt(format!("prof_{lijn_id}")).width(300.0)
                             .selected_text(
                                 catalogus
                                     .profielen
@@ -663,7 +698,7 @@ impl App {
                         egui::DragValue::new(aantal).speed(1.0).range(0..=100000).ui(ui);
                     }
                 }
-                if ui.button("Verwijder").clicked() {
+                if danger_button(ui, "Verwijder").clicked() {
                     verwijder = Some(lijn_id);
                 }
                 ui.end_row();
@@ -673,14 +708,14 @@ impl App {
             }
         });
         ui.horizontal(|ui| {
-            if ui.button("+ Per stuk toevoegen").clicked() {
+            if primary_button(ui, "+ Per stuk toevoegen").clicked() {
                 regels.push(ProjectLijn::PerStuk {
                     id: nieuw_id(),
                     materiaal_id: catalogus.per_stuk.first().map(|m| m.id.clone()),
                     aantal: 1,
                 });
             }
-            if ui.button("+ Zaagdeel toevoegen").clicked() {
+            if primary_button(ui, "+ Zaagdeel toevoegen").clicked() {
                 regels.push(ProjectLijn::Zaagdeel {
                     id: nieuw_id(),
                     profiel_id: catalogus.profielen.first().map(|p| p.id.clone()),
@@ -708,8 +743,10 @@ impl App {
         ui.heading(format!("Project: {naam}"));
         ui.label("Benodigde onderdelen voor dit project.");
         ui.add_space(4.0);
-        let regels = &mut self.projecten[pos].regels;
-        Self::regels_editor(&self.catalogus, ui, regels);
+        card(ui, |ui| {
+            let regels = &mut self.projecten[pos].regels;
+            Self::regels_editor(&self.catalogus, ui, regels);
+        });
     }
 
     fn tab_calculatie(&mut self, ui: &mut egui::Ui) {
@@ -768,7 +805,7 @@ impl App {
             }
             if !res.per_stuk.is_empty() {
                 ui.heading("Producten per stuk");
-                egui::Grid::new("calc_per_stuk").striped(true).show(ui, |ui| {
+                egui::Grid::new("calc_per_stuk").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
                     ui.label(egui::RichText::new("Naam").strong());
                     ui.label(egui::RichText::new("Aantal").strong());
                     ui.label(egui::RichText::new("Prijs/stuk").strong());
@@ -784,28 +821,48 @@ impl App {
                 });
                 ui.separator();
             }
-            ui.label(
-                egui::RichText::new(format!("Totaal exclusief BTW: {}", self.fmt_bedrag(res.totaal_excl)))
-                    .strong()
-                    .size(16.0),
-            );
-            ui.label(format!(
-                "BTW ({:.1}%): {}",
-                self.catalogus.instellingen.btw_pct,
-                self.fmt_bedrag(res.btw)
-            ));
-            ui.label(
-                egui::RichText::new(format!("Totaal inclusief BTW: {}", self.fmt_bedrag(res.totaal_incl)))
-                    .strong()
-                    .size(20.0)
-                    .color(ACCENT),
-            );
+            egui::Frame::default()
+                .fill(egui::Color32::from_rgb(0xF6, 0xEC, 0xE0))
+                .stroke(egui::Stroke::new(1.0_f32, ACCENT))
+                .rounding(egui::Rounding::same(12.0))
+                .inner_margin(egui::Margin::same(18.0))
+                .show(ui, |ui| {
+                    ui.set_width(360.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Totaal exclusief BTW:  {}",
+                            self.fmt_bedrag(res.totaal_excl)
+                        ))
+                        .strong()
+                        .size(16.0),
+                    );
+                    ui.label(format!(
+                        "BTW ({:.1}%):  {}",
+                        self.catalogus.instellingen.btw_pct,
+                        self.fmt_bedrag(res.btw)
+                    ));
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Totaal inclusief BTW:  {}",
+                            self.fmt_bedrag(res.totaal_incl)
+                        ))
+                        .strong()
+                        .size(20.0)
+                        .color(ACCENT),
+                    );
+                });
         });
     }
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.style_mut(|s| {
+            s.spacing.slider_width = 150.0;
+            s.spacing.item_spacing = egui::vec2(12.0, 8.0);
+            s.spacing.button_padding = egui::vec2(16.0, 9.0);
+        });
         self.sidebar(ctx);
         egui::TopBottomPanel::top("topbar")
             .frame(egui::Frame::default().fill(PANEL_BG).inner_margin(egui::Margin::symmetric(14.0, 8.0)))

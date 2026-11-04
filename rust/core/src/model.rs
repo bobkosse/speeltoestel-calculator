@@ -77,6 +77,13 @@ impl Default for Catalogus {
     }
 }
 
+/// App-instellingen op schijf (werkmap waar materialen.json/projecten.json staan).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppInstellingen {
+    #[serde(default)]
+    pub werkmap: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instellingen {
     #[serde(default = "drie")]

@@ -125,8 +125,10 @@ struct App {
     catalogus: Catalogus,
     projecten: Vec<ProjectEntry>,
     huidig_project: Option<String>,
-    bestand_bibliotheek: Option<PathBuf>,
-    bestand_projecten: Option<PathBuf>,
+    werkmap: Option<PathBuf>,
+    setup_nodig: bool,
+    map_keuze: Option<PathBuf>,
+    last_saved: String,
     tab: Tab,
     mat_tab: MatTab,
     status: String,
@@ -157,8 +159,10 @@ impl Default for App {
                 ],
             }],
             huidig_project: Some("pr1".to_string()),
-            bestand_bibliotheek: None,
-            bestand_projecten: None,
+            werkmap: None,
+            setup_nodig: false,
+            map_keuze: None,
+            last_saved: String::new(),
             tab: Tab::Projecten,
             mat_tab: MatTab::PerStuk,
             status: "Onopgeslagen wijzigingen".to_string(),
@@ -181,132 +185,176 @@ impl App {
     }
 
     fn set_status(&mut self) {
-        let bib = self
-            .bestand_bibliotheek
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "onopgeslagen".to_string());
-        let proj = self
-            .bestand_projecten
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "onopgeslagen".to_string());
-        self.status = format!("Bibliotheek: {bib}  ·  Projecten: {proj}");
+        self.status = match &self.werkmap {
+            Some(map) => format!(
+                "Werkmap: {} — alles wordt automatisch opgeslagen (materialen.json + projecten.json)",
+                map.display()
+            ),
+            None => "Kies eerst een werkmap…".to_string(),
+        };
     }
 
+    fn app_instellingen_pad() -> PathBuf {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
+        if cfg!(target_os = "macos") {
+            PathBuf::from(home).join("Library/Application Support/speeltoestel-calculator/settings.json")
+        } else if cfg!(target_os = "windows") {
+            let appdata = std::env::var("APPDATA").unwrap_or_else(|_| home.clone());
+            PathBuf::from(appdata).join("speeltoestel-calculator/settings.json")
+        } else {
+            PathBuf::from(home).join(".config/speeltoestel-calculator/settings.json")
+        }
+    }
+
+    fn materialen_pad(&self) -> Option<PathBuf> {
+        self.werkmap.as_ref().map(|m| m.join("materialen.json"))
+    }
+
+    fn projecten_pad(&self) -> Option<PathBuf> {
+        self.werkmap.as_ref().map(|m| m.join("projecten.json"))
+    }
+
+    fn init_bij_opstarten(&mut self) {
+        let pad = Self::app_instellingen_pad();
+        match std::fs::read_to_string(&pad) {
+            Ok(tekst) => match serde_json::from_str::<speeltoestel_core::model::AppInstellingen>(&tekst) {
+                Ok(inst) if !inst.werkmap.is_empty() => {
+                    self.werkmap = Some(PathBuf::from(&inst.werkmap));
+                    self.laad_uit_werkmap();
+                }
+                _ => self.setup_nodig = true,
+            },
+            Err(_) => self.setup_nodig = true,
+        }
+        self.set_status();
+    }
+
+    fn laad_uit_werkmap(&mut self) {
+        if let Some(mp) = self.materialen_pad() {
+            match std::fs::read_to_string(&mp) {
+                Ok(tekst) => {
+                    if let Ok(c) = serde_json::from_str::<Catalogus>(&tekst) {
+                        self.catalogus = c;
+                    }
+                }
+                Err(_) => {
+                    let _ = std::fs::write(&mp, serde_json::to_string_pretty(&Catalogus::default()).unwrap_or_default());
+                }
+            }
+        }
+        if let Some(pp) = self.projecten_pad() {
+            match std::fs::read_to_string(&pp) {
+                Ok(tekst) => {
+                    let value: serde_json::Value = match serde_json::from_str(&tekst) {
+                        Ok(v) => v,
+                        Err(_) => return,
+                    };
+                    if value.get("projecten").is_some() {
+                        if let Ok(data) = serde_json::from_value::<ProjectenData>(value) {
+                            self.projecten = data.projecten;
+                        }
+                    } else if value.get("project").is_some() {
+                        if let Ok(regels) = serde_json::from_value::<Vec<ProjectLijn>>(value["project"].clone()) {
+                            self.projecten = vec![ProjectEntry {
+                                id: nieuw_id(),
+                                naam: "Geïmporteerd project".to_string(),
+                                regels,
+                            }];
+                        }
+                    }
+                    self.huidig_project = self.projecten.first().map(|p| p.id.clone());
+                }
+                Err(_) => {
+                    let data = ProjectenData {
+                        versie: 1,
+                        projecten: std::mem::take(&mut self.projecten),
+                    };
+                    let _ = std::fs::write(&pp, serde_json::to_string_pretty(&data).unwrap_or_default());
+                    self.projecten = data.projecten;
+                }
+            }
+        }
+        self.last_saved = self.huidige_state_json();
+    }
+
+    fn huidige_state_json(&self) -> String {
+        let cat = serde_json::to_string(&self.catalogus).unwrap_or_default();
+        let proj = serde_json::to_string(&ProjectenData {
+            versie: 1,
+            projecten: self.projecten.clone(),
+        })
+        .unwrap_or_default();
+        format!("{cat}\n{proj}")
+    }
+
+    fn kies_werkmap(&mut self) {
+        if let Some(map) = rfd::FileDialog::new().pick_folder() {
+            self.map_keuze = Some(map);
+        }
+    }
+
+    fn bevestig_werkmap(&mut self) {
+        if let Some(map) = self.map_keuze.clone() {
+            let inst = speeltoestel_core::model::AppInstellingen {
+                werkmap: map.display().to_string(),
+            };
+            if let Some(pad) = Self::app_instellingen_pad().parent().map(|p| p.to_path_buf()) {
+                let _ = std::fs::create_dir_all(&pad);
+            }
+            if let Ok(json) = serde_json::to_string_pretty(&inst) {
+                let _ = std::fs::write(Self::app_instellingen_pad(), json);
+            }
+            self.werkmap = Some(map);
+            self.setup_nodig = false;
+            self.laad_uit_werkmap();
+            self.set_status();
+        }
+    }
+
+    fn autosave(&mut self) {
+        if self.werkmap.is_none() {
+            return;
+        }
+        let state = self.huidige_state_json();
+        if state == self.last_saved {
+            return;
+        }
+        self.forceer_opslaan();
+        self.last_saved = state;
+        self.status = format!(
+            "Automatisch opgeslagen om {} — {}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| format!("{}s", d.as_secs()))
+                .unwrap_or_default(),
+            self.werkmap.as_ref().map(|m| m.display().to_string()).unwrap_or_default()
+        );
+    }
+
+    fn forceer_opslaan(&mut self) {
+        if let Some(mp) = self.materialen_pad() {
+            if let Ok(json) = serde_json::to_string_pretty(&self.catalogus) {
+                if std::fs::write(&mp, json).is_ok() {
+                    self.last_saved = self.huidige_state_json();
+                }
+            }
+        }
+        if let Some(pp) = self.projecten_pad() {
+            let data = ProjectenData {
+                versie: 1,
+                projecten: self.projecten.clone(),
+            };
+            if let Ok(json) = serde_json::to_string_pretty(&data) {
+                let _ = std::fs::write(&pp, json);
+            }
+        }
+    }
     fn huidig_project(&self) -> Option<&ProjectEntry> {
         self.huidig_project
             .as_ref()
             .and_then(|id| self.projecten.iter().find(|p| &p.id == id))
-    }
-
-    fn lees_projecten_bestand(path: &std::path::Path) -> Result<(Option<Catalogus>, ProjectenData), String> {
-        let tekst = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let value: serde_json::Value =
-            serde_json::from_str(&tekst).map_err(|e| format!("geen geldige JSON: {e}"))?;
-        if value.get("projecten").is_some() {
-            let data: ProjectenData = serde_json::from_value(value)
-                .map_err(|e| format!("geen geldig projectenbestand: {e}"))?;
-            Ok((None, data))
-        } else if value.get("project").is_some() || value.get("per_stuk").is_some() || value.get("profielen").is_some() {
-            // legacy: combined bestand (catalogus + project) of enkel project-array
-            let catalogus = if value.get("per_stuk").is_some() || value.get("profielen").is_some() {
-                Some(serde_json::from_value(value.clone()).map_err(|e| e.to_string())?)
-            } else {
-                None
-            };
-            let regels: Vec<ProjectLijn> = serde_json::from_value(value["project"].clone())
-                .map_err(|e| format!("geen geldige projectregels: {e}"))?;
-            Ok((
-                catalogus,
-                ProjectenData {
-                    versie: 1,
-                    projecten: vec![ProjectEntry {
-                        id: nieuw_id(),
-                        naam: "Geïmporteerd project".to_string(),
-                        regels,
-                    }],
-                },
-            ))
-        } else {
-            Err("geen projectenbestand (geen \"projecten\" of \"project\" gevonden)".to_string())
-        }
-    }
-
-    fn projecten_openen(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("JSON-bestand", &["json"])
-            .pick_file()
-        {
-            match Self::lees_projecten_bestand(&path) {
-                Ok((catalogus, data)) => {
-                    if let Some(c) = catalogus {
-                        self.catalogus = c;
-                    }
-                    self.projecten = data.projecten;
-                    self.huidig_project = self.projecten.first().map(|p| p.id.clone());
-                    self.bestand_projecten = Some(path);
-                    self.set_status();
-                }
-                Err(e) => self.status = format!("Kon bestand niet lezen: {e}"),
-            }
-        }
-    }
-
-    fn projecten_opslaan(&mut self, als_anders: bool) {
-        let data = ProjectenData {
-            versie: 1,
-            projecten: self.projecten.clone(),
-        };
-        let json = match serde_json::to_string_pretty(&data) {
-            Ok(j) => j,
-            Err(e) => {
-                self.status = format!("Serialisatiefout: {e}");
-                return;
-            }
-        };
-        let mut path = if als_anders { None } else { self.bestand_projecten.clone() };
-        if path.is_none() {
-            path = rfd::FileDialog::new()
-                .add_filter("JSON-bestand", &["json"])
-                .set_file_name("projecten.json")
-                .save_file();
-        }
-        if let Some(p) = path {
-            match std::fs::write(&p, json) {
-                Ok(()) => {
-                    self.bestand_projecten = Some(p);
-                    self.set_status();
-                }
-                Err(e) => self.status = format!("Opslaan mislukt: {e}"),
-            }
-        }
-    }
-
-    fn bibliotheek_opslaan(&mut self, als_anders: bool) {
-        let json = match serde_json::to_string_pretty(&self.catalogus) {
-            Ok(j) => j,
-            Err(e) => {
-                self.status = format!("Serialisatiefout: {e}");
-                return;
-            }
-        };
-        let mut path = if als_anders { None } else { self.bestand_bibliotheek.clone() };
-        if path.is_none() {
-            path = rfd::FileDialog::new()
-                .add_filter("JSON-bestand", &["json"])
-                .set_file_name("materialen.json")
-                .save_file();
-        }
-        if let Some(p) = path {
-            match std::fs::write(&p, json) {
-                Ok(()) => {
-                    self.bestand_bibliotheek = Some(p);
-                    self.set_status();
-                }
-                Err(e) => self.status = format!("Opslaan mislukt: {e}"),
-            }
-        }
     }
 
     fn sidebar(&mut self, ctx: &egui::Context) {
@@ -348,25 +396,45 @@ impl App {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(self.tab.label()).strong().size(16.0));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Projecten opslaan als…").clicked() {
-                    self.projecten_opslaan(true);
+                if ui.button("Werkmap wijzigen…").clicked() {
+                    self.kies_werkmap();
+                    if self.map_keuze.is_some() {
+                        self.bevestig_werkmap();
+                    }
                 }
-                if ui.button("Projecten opslaan").clicked() {
-                    self.projecten_opslaan(false);
-                }
-                if ui.button("Projecten openen…").clicked() {
-                    self.projecten_openen();
-                }
-                ui.separator();
-                if ui.button("Bibliotheek opslaan als…").clicked() {
-                    self.bibliotheek_opslaan(true);
-                }
-                if ui.button("Bibliotheek opslaan").clicked() {
-                    self.bibliotheek_opslaan(false);
-                }
+                ui.label(egui::RichText::new(&self.status).weak().small());
             });
         });
         ui.separator();
+    }
+
+    fn setup_modal(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Welkom bij de Speeltoestel Calculator")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.set_width(460.0);
+                ui.label("Kies de map waarin je materialen en projecten worden bewaard.");
+                ui.label("Daarin staan twee bestanden: materialen.json en projecten.json.");
+                ui.label("Alles wat je wijzigt wordt daarna automatisch opgeslagen in deze map.");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Kies map…").clicked() {
+                        self.kies_werkmap();
+                    }
+                    if let Some(map) = &self.map_keuze {
+                        ui.label(egui::RichText::new(map.display().to_string()).small());
+                    }
+                });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let ok = primary_button(ui, "Opslaan en doorgaan");
+                    if ok.clicked() && self.map_keuze.is_some() {
+                        self.bevestig_werkmap();
+                    }
+                });
+            });
     }
 
     fn tab_projecten(&mut self, ui: &mut egui::Ui) {
@@ -1071,6 +1139,14 @@ impl eframe::App for App {
                 Tab::Project => self.tab_project(ui),
                 Tab::Calculatie => self.tab_calculatie(ui),
             });
+        if self.setup_nodig {
+            self.setup_modal(ctx);
+        }
+        self.autosave();
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.forceer_opslaan();
     }
 }
 
@@ -1100,7 +1176,9 @@ fn main() -> eframe::Result<()> {
             visuals.widgets.active.rounding = egui::Rounding::same(8.0);
             visuals.widgets.open.rounding = egui::Rounding::same(8.0);
             cc.egui_ctx.set_visuals(visuals);
-            Ok(Box::new(App::default()))
+            let mut app = App::default();
+            app.init_bij_opstarten();
+            Ok(Box::new(app))
         }),
     )
 }

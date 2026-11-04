@@ -22,9 +22,11 @@ De navigatie zit in de **linker zijbalk** (Projecten · Materialen · Project ·
 - **Calculatie** — automatisch de goedkoopste inkoop, mét zaagsnede: n delen uit één plank
   kosten `som(lengtes) + (n−1) × zaagsnede` (2 × 1000 mm past dus niet in een 2 m plank).
   De calculatie toont een Bill of Materials (wat je aanschaft, met prijs per stuk en bedrag) plus een overzicht van reststukken ter controle. Zaagsnede wordt per zaagdeel meegerekend: een stuk van 1000 mm uit een 2000 mm plank kost 1003 mm, reststuk 997 mm.
-- **Bestanden** — `materialen.json` (bibliotheek, via *Bibliotheek opslaan*) en `projecten.json`
-  (alle projecten, via *Projecten openen/opslaan*). Oude bestanden met materialen + project
-  in één bestand worden automatisch gesplitst/geïmporteerd bij het openen.
+- **Fool-proof opslaan** — bij de eerste start kies je een **werkmap**. Daarin staan
+  `materialen.json` en `projecten.json`. De werkmap wordt onthouden (per gebruiker, in de
+  app-instellingen) en bij elke start automatisch geladen. **Elke wijziging wordt direct
+  automatisch weggeschreven** en bij het afsluiten van de app nogmaals geforceerd opgeslagen.
+  Met *Werkmap wijzigen…* kun je de map achteraf aanpassen.
 
 ## Bouwen en draaien
 

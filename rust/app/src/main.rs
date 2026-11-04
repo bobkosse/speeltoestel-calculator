@@ -447,11 +447,6 @@ impl App {
                     .speed(0.5)
                     .range(0.0..=20.0)
                     .ui(ui);
-                ui.label("BTW (%):");
-                egui::DragValue::new(&mut self.catalogus.instellingen.btw_pct)
-                    .speed(0.1)
-                    .range(0.0..=100.0)
-                    .ui(ui);
                 ui.label("Munt:");
                 text_field(ui, &mut self.catalogus.instellingen.munt, 80.0);
             });
@@ -791,98 +786,82 @@ impl App {
         ui.heading(format!("Calculatie: {naam}"));
         let res = bereken_project(&self.catalogus, &regels);
         ui.label(format!(
-            "Zaagsnede per snede: {} mm — bij n delen uit één plank zijn er n−1 zaagsnedes nodig.",
+            "Zaagsnede: {} mm per zaagdeel — elk deel kost lengte + zaagsnede uit de ingekochte plank (een stuk van 1000 mm uit een plank van 2000 mm laat dus 997 mm rest over).",
             res.zaagsnede_mm
         ));
-        ui.separator();
+        ui.add_space(4.0);
         egui::ScrollArea::vertical().show(ui, |ui| {
-            if !res.zaag_resultaten.is_empty() {
-                ui.heading("Zaagdelen per profiel");
-                for zr in &res.zaag_resultaten {
-                    ui.label(egui::RichText::new(zr.profiel.naam()).strong());
-                    match &zr.resultaat {
-                        None => {
-                            ui.colored_label(
-                                egui::Color32::RED,
-                                "Geen inkooplengte gevonden waarin alle delen passen",
-                            );
-                        }
-                        Some(r) => {
-                            ui.label(format!(
-                                "Inkoop: {} × {} mm à {} = {} (restafval totaal: {} mm)",
-                                r.aantal,
-                                r.lengte_mm,
-                                self.fmt_bedrag(r.prijs_per_stuk),
-                                self.fmt_bedrag(zr.kosten),
-                                r.afval
-                            ));
-                            for (i, bak) in r.bakken.iter().enumerate() {
-                                let stukken: Vec<String> =
-                                    bak.stukken.iter().map(|s| format!("{s} mm")).collect();
-                                ui.label(format!(
-                                    "  Plank {} ({} mm): {} (zaagsnedes: {} × {} mm) → rest {} mm",
-                                    i + 1,
-                                    r.lengte_mm,
-                                    stukken.join(" + "),
-                                    bak.stukken.len().saturating_sub(1),
-                                    res.zaagsnede_mm,
-                                    bak.rest
-                                ));
-                            }
-                        }
-                    }
-                    ui.separator();
-                }
-            }
-            if !res.per_stuk.is_empty() {
-                ui.heading("Producten per stuk");
-                egui::Grid::new("calc_per_stuk").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
-                    ui.label(egui::RichText::new("Naam").strong());
+            card(ui, |ui| {
+                ui.heading("Bill of Materials — aan te schaffen");
+                egui::Grid::new("bom").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
+                    ui.label(egui::RichText::new("Artikel").strong());
+                    ui.label(egui::RichText::new("Specificatie").strong());
                     ui.label(egui::RichText::new("Aantal").strong());
                     ui.label(egui::RichText::new("Prijs/stuk").strong());
-                    ui.label(egui::RichText::new("Kosten").strong());
+                    ui.label(egui::RichText::new("Bedrag").strong());
                     ui.end_row();
+                    for zr in &res.zaag_resultaten {
+                        match &zr.resultaat {
+                            Some(r) => {
+                                ui.label(zr.profiel.naam());
+                                ui.label(format!("{} mm", r.lengte_mm));
+                                ui.label(r.aantal.to_string());
+                                ui.label(self.fmt_bedrag(r.prijs_per_stuk));
+                                ui.label(self.fmt_bedrag(zr.kosten));
+                            }
+                            None => {
+                                ui.label(zr.profiel.naam());
+                                ui.colored_label(
+                                    egui::Color32::RED,
+                                    "geen passende inkooplengte",
+                                );
+                                ui.label("");
+                                ui.label("");
+                                ui.label("");
+                            }
+                        }
+                        ui.end_row();
+                    }
                     for l in &res.per_stuk {
                         ui.label(&l.naam);
+                        ui.label("per stuk");
                         ui.label(l.aantal.to_string());
                         ui.label(self.fmt_bedrag(l.prijs_per_stuk));
                         ui.label(self.fmt_bedrag(l.kosten));
                         ui.end_row();
                     }
+                    ui.label(egui::RichText::new("Totaal (excl. BTW)").strong());
+                    ui.label("");
+                    ui.label("");
+                    ui.label("");
+                    ui.label(egui::RichText::new(self.fmt_bedrag(res.totaal_excl)).strong().size(16.0).color(ACCENT));
+                    ui.end_row();
                 });
-                ui.separator();
-            }
-            egui::Frame::default()
-                .fill(egui::Color32::from_rgb(0xF6, 0xEC, 0xE0))
-                .stroke(egui::Stroke::new(1.0_f32, ACCENT))
-                .rounding(egui::Rounding::same(12.0))
-                .inner_margin(egui::Margin::same(18.0))
-                .show(ui, |ui| {
-                    ui.set_width(360.0);
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "Totaal exclusief BTW:  {}",
-                            self.fmt_bedrag(res.totaal_excl)
-                        ))
-                        .strong()
-                        .size(16.0),
-                    );
-                    ui.label(format!(
-                        "BTW ({:.1}%):  {}",
-                        self.catalogus.instellingen.btw_pct,
-                        self.fmt_bedrag(res.btw)
-                    ));
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "Totaal inclusief BTW:  {}",
-                            self.fmt_bedrag(res.totaal_incl)
-                        ))
-                        .strong()
-                        .size(20.0)
-                        .color(ACCENT),
-                    );
-                });
+            });
+            card(ui, |ui| {
+                ui.heading("Reststukken (ter controle)");
+                let mut heeft_rest = false;
+                for zr in &res.zaag_resultaten {
+                    if let Some(r) = &zr.resultaat {
+                        for (i, bak) in r.bakken.iter().enumerate() {
+                            heeft_rest = true;
+                            let stukken: Vec<String> =
+                                bak.stukken.iter().map(|s| format!("{s} mm")).collect();
+                            ui.label(format!(
+                                "{} — plank {} ({} mm): {} → reststuk {} mm",
+                                zr.profiel.naam(),
+                                i + 1,
+                                r.lengte_mm,
+                                stukken.join(" + "),
+                                bak.rest
+                            ));
+                        }
+                    }
+                }
+                if !heeft_rest {
+                    ui.label("Geen zaagdelen in dit project.");
+                }
+            });
         });
     }
 }

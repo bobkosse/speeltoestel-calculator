@@ -15,13 +15,13 @@ De navigatie zit in de **linker zijbalk** (Projecten · Materialen · Project ·
   hernoem je ze, open je ze (om te bewerken in het tabblad Project) of verwijder je ze.
 - **Materialen** — de gedeelde materialenbibliotheek: producten per stuk (schroeven, bouten:
   prijs/stuk + extra info) en half-fabricaten (profielen met houtsoort, dikte, breedte en één
-  of meer inkooplengtes met prijs). Instellingen: zaagsnede in mm (standaard 3) en BTW-%.
+  of meer inkooplengtes met prijs). Instellingen: zaagsnede in mm (standaard 3). Alle prijzen zijn exclusief BTW.
   Sla op via *Bibliotheek opslaan* als `materialen.json` — één bestand voor alle projecten.
 - **Project** — de benodigde onderdelen van het geopende project: per stuk (materiaal + aantal)
   of zaagdeel (profiel + lengte in mm + aantal).
 - **Calculatie** — automatisch de goedkoopste inkoop, mét zaagsnede: n delen uit één plank
   kosten `som(lengtes) + (n−1) × zaagsnede` (2 × 1000 mm past dus niet in een 2 m plank).
-  Per profiel zie je het zaagplan en het restafval. Prijzen excl. BTW, plus totaal incl. BTW.
+  De calculatie toont een Bill of Materials (wat je aanschaft, met prijs per stuk en bedrag) plus een overzicht van reststukken ter controle. Zaagsnede wordt per zaagdeel meegerekend: een stuk van 1000 mm uit een 2000 mm plank kost 1003 mm, reststuk 997 mm.
 - **Bestanden** — `materialen.json` (bibliotheek, via *Bibliotheek opslaan*) en `projecten.json`
   (alle projecten, via *Projecten openen/opslaan*). Oude bestanden met materialen + project
   in één bestand worden automatisch gesplitst/geïmporteerd bij het openen.

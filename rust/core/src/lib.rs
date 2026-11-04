@@ -7,10 +7,17 @@ mod tests {
     use super::optimizer::*;
 
     #[test]
+    fn zaagsnede_1x1000_uit_2000_geeft_rest_997() {
+        let bakken = pack_optimaal(&[1000], 2000, 3).unwrap();
+        assert_eq!(bakken.len(), 1);
+        assert_eq!(bakken[0].rest, 997);
+    }
+
+    #[test]
     fn zaagsnede_2x100_past_in_2000() {
         let bakken = pack_optimaal(&[100, 100], 2000, 3).unwrap();
         assert_eq!(bakken.len(), 1);
-        assert_eq!(bakken[0].rest, 2000 - 100 - 3 - 100);
+        assert_eq!(bakken[0].rest, 2000 - 100 - 3 - 100 - 3);
     }
 
     #[test]
@@ -23,7 +30,7 @@ mod tests {
     fn zaagsnede_3x500_past_in_2000() {
         let bakken = pack_optimaal(&[500, 500, 500], 2000, 3).unwrap();
         assert_eq!(bakken.len(), 1);
-        assert_eq!(bakken[0].rest, 2000 - 1500 - 2 * 3);
+        assert_eq!(bakken[0].rest, 2000 - 1500 - 3 * 3);
     }
 
     #[test]
@@ -49,10 +56,11 @@ mod tests {
 
     #[test]
     fn zaagsnede_telt_mee_bij_lengtekeuze() {
-        let res = optimaliseer_profiel(&[1000, 1000], &[(1000, 12.0), (2000, 20.0)], 3).unwrap();
-        assert_eq!(res.lengte_mm, 1000);
-        assert_eq!(res.aantal, 2);
-        assert_eq!(res.kosten, 24.0);
+        // 1000 mm stuk past niet in 1000 mm plank (1003 > 1000), 2100 mm wel (2006 <= 2100)
+        let res = optimaliseer_profiel(&[1000, 1000], &[(1000, 12.0), (2100, 22.0)], 3).unwrap();
+        assert_eq!(res.lengte_mm, 2100);
+        assert_eq!(res.aantal, 1);
+        assert_eq!(res.kosten, 22.0);
     }
 
     #[test]
@@ -65,7 +73,6 @@ mod tests {
             versie: 1,
             instellingen: Instellingen {
                 zaagsnede_mm: 3.0,
-                btw_pct: 21.0,
                 munt: "EUR".to_string(),
             },
             per_stuk: vec![PerStuk {
@@ -107,8 +114,6 @@ mod tests {
         assert_eq!(res.zaag_resultaten[0].resultaat.as_ref().unwrap().aantal, 2);
         assert_eq!(res.zaag_resultaten[0].kosten, 80.0);
         assert_eq!(res.totaal_excl, 85.0);
-        assert_eq!(res.btw, 17.85);
-        assert_eq!(res.totaal_incl, 102.85);
     }
 
     #[test]

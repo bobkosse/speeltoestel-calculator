@@ -9,8 +9,9 @@ pub struct Bak {
 }
 
 fn past_in_bak(lengte: i64, bak: &Bak, zaagsnede: i64) -> bool {
-    let nodig = lengte + if bak.stukken.is_empty() { 0 } else { zaagsnede };
-    nodig <= bak.rest
+    // Elk zaagdeel kost lengte + zaagsnede uit de plank (ook het eerste stuk:
+    // om een plank van 2000 mm tot 1000 mm te reduceren verlies je 3 mm aan de zaagsnede).
+    lengte + zaagsnede <= bak.rest
 }
 
 pub fn pack_ffd(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Vec<Bak> {
@@ -21,9 +22,8 @@ pub fn pack_ffd(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Vec<Bak> 
         let mut geplaatst = false;
         for bak in bakken.iter_mut() {
             if past_in_bak(item, bak, zaagsnede) {
-                let kerf = if bak.stukken.is_empty() { 0 } else { zaagsnede };
                 bak.stukken.push(item);
-                bak.rest -= item + kerf;
+                bak.rest -= item + zaagsnede;
                 geplaatst = true;
                 break;
             }
@@ -31,7 +31,7 @@ pub fn pack_ffd(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Vec<Bak> 
         if !geplaatst {
             bakken.push(Bak {
                 stukken: vec![item],
-                rest: stock_lengte - item,
+                rest: stock_lengte - item - zaagsnede,
             });
         }
     }
@@ -77,17 +77,16 @@ pub fn pack_optimaal(lengtes: &[i64], stock_lengte: i64, zaagsnede: i64) -> Opti
             }
             if past_in_bak(items[i], &staat.bakken[j], zaagsnede) {
                 geprobeerd.push(sleutel);
-                let kerf = if staat.bakken[j].stukken.is_empty() { 0 } else { zaagsnede };
                 staat.bakken[j].stukken.push(items[i]);
-                staat.bakken[j].rest -= items[i] + kerf;
+                staat.bakken[j].rest -= items[i] + zaagsnede;
                 rec(staat, items, i + 1, stock_lengte, zaagsnede);
-                staat.bakken[j].rest += items[i] + kerf;
+                staat.bakken[j].rest += items[i] + zaagsnede;
                 staat.bakken[j].stukken.pop();
             }
         }
         staat.bakken.push(Bak {
             stukken: vec![items[i]],
-            rest: stock_lengte - items[i],
+            rest: stock_lengte - items[i] - zaagsnede,
         });
         rec(staat, items, i + 1, stock_lengte, zaagsnede);
         staat.bakken.pop();
@@ -155,8 +154,6 @@ pub struct Berekening {
     pub per_stuk: Vec<PerStukKosten>,
     pub zaag_resultaten: Vec<ZaagResultaat>,
     pub totaal_excl: f64,
-    pub btw: f64,
-    pub totaal_incl: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -177,7 +174,6 @@ pub struct ZaagResultaat {
 
 pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Berekening {
     let zaagsnede = catalogus.instellingen.zaagsnede_mm.round() as i64;
-    let btw_pct = catalogus.instellingen.btw_pct;
 
     let mut per_stuk: Vec<PerStukKosten> = Vec::new();
     let mut zaag_groepen: Vec<(String, Vec<i64>)> = Vec::new();
@@ -244,13 +240,10 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
         totaal += l.kosten;
     }
 
-    let btw = rond2(totaal * btw_pct / 100.0);
     Berekening {
         zaagsnede_mm: zaagsnede,
         per_stuk,
         zaag_resultaten,
         totaal_excl: rond2(totaal),
-        btw,
-        totaal_incl: rond2(totaal + btw),
     }
 }

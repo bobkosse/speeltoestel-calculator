@@ -40,7 +40,6 @@ fn een() -> u32 {
 fn standaard_instellingen() -> Instellingen {
     Instellingen {
         zaagsnede_mm: 3.0,
-        btw_pct: 21.0,
         munt: "EUR".to_string(),
     }
 }
@@ -82,17 +81,12 @@ impl Default for Catalogus {
 pub struct Instellingen {
     #[serde(default = "drie")]
     pub zaagsnede_mm: f64,
-    #[serde(default = "eenentwintig")]
-    pub btw_pct: f64,
     #[serde(default = "eur")]
     pub munt: String,
 }
 
 fn drie() -> f64 {
     3.0
-}
-fn eenentwintig() -> f64 {
-    21.0
 }
 fn eur() -> String {
     "EUR".to_string()

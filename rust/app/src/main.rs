@@ -127,6 +127,10 @@ struct App {
     setup_nodig: bool,
     map_keuze: Option<PathBuf>,
     last_saved: String,
+    toon_print_dialog: bool,
+    printers: Vec<String>,
+    printer_keuze: String,
+    print_pdf_pad: Option<PathBuf>,
     tab: Tab,
     mat_tab: MatTab,
     status: String,
@@ -161,6 +165,10 @@ impl Default for App {
             setup_nodig: false,
             map_keuze: None,
             last_saved: String::new(),
+            toon_print_dialog: false,
+            printers: Vec::new(),
+            printer_keuze: String::new(),
+            print_pdf_pad: None,
             tab: Tab::Projecten,
             mat_tab: MatTab::PerStuk,
             status: "Onopgeslagen wijzigingen".to_string(),
@@ -911,6 +919,14 @@ impl App {
     fn maak_pdf(&self, project_naam: &str, res: &Berekening) -> Result<Vec<u8>, String> {
         use printpdf::*;
 
+        static HELVETICA: &[u8] = include_bytes!("../assets/fonts/Helvetica.ttf");
+        static HELVETICA_BOLD: &[u8] = include_bytes!("../assets/fonts/Helvetica-Bold.ttf");
+        let mut doc = PdfDocument::new("Bill of Materials");
+        let font = doc
+            .add_font(&ParsedFont::from_bytes(HELVETICA, 0, &mut Vec::new()).ok_or("font laden mislukt")?);
+        let font_bold = doc
+            .add_font(&ParsedFont::from_bytes(HELVETICA_BOLD, 0, &mut Vec::new()).ok_or("font laden mislukt")?);
+
         const PAGE_W: f64 = 210.0;
         const PAGE_H: f64 = 297.0;
         const MARGIN: f64 = 15.0;
@@ -925,6 +941,8 @@ impl App {
             y: f64,
             zwart: Color,
             accent: Color,
+            font: FontId,
+            font_bold: FontId,
         }
         impl Bouwer {
             fn new_page(&mut self, pages: &mut Vec<PdfPage>) {
@@ -939,14 +957,14 @@ impl App {
                 }
             }
             fn tekst(&mut self, s: &str, x: f64, size: f64, bold: bool, kleur: &Color) {
-                let font = if bold { BuiltinFont::HelveticaBold } else { BuiltinFont::Helvetica };
+                let font = if bold { self.font_bold.clone() } else { self.font.clone() };
                 self.ops.push(Op::StartTextSection);
                 self.ops.push(Op::SetTextCursor {
                     pos: Point::new(Mm(x as f32), Mm((PAGE_H - self.y - size * 0.35) as f32)),
                 });
-                self.ops.push(Op::SetFontSizeBuiltinFont { size: Pt(size as f32), font });
+                self.ops.push(Op::SetFontSize { size: Pt(size as f32), font: font.clone() });
                 self.ops.push(Op::SetFillColor { col: kleur.clone() });
-                self.ops.push(Op::WriteTextBuiltinFont {
+                self.ops.push(Op::WriteText {
                     items: vec![TextItem::Text(s.to_string())],
                     font,
                 });
@@ -1017,7 +1035,7 @@ impl App {
         }
 
         let mut pages: Vec<PdfPage> = Vec::new();
-        let mut b = Bouwer { ops: Vec::new(), y: MARGIN, zwart: zwart.clone(), accent: accent.clone() };
+        let mut b = Bouwer { ops: Vec::new(), y: MARGIN, zwart: zwart.clone(), accent: accent.clone(), font: font.clone(), font_bold: font_bold.clone() };
 
         b.tekst(&format!("Bill of Materials — {project_naam}"), MARGIN, 16.0, true, &accent);
         b.y += 10.0;
@@ -1105,7 +1123,6 @@ impl App {
         b.tabel(&mut pages, &zaag_cols, &zaag_rows, None);
 
         b.new_page(&mut pages);
-        let mut doc = PdfDocument::new("Bill of Materials");
         let bytes = doc
             .with_pages(pages)
             .save(&PdfSaveOptions::default(), &mut Vec::new());
@@ -1116,30 +1133,122 @@ impl App {
         match self.maak_pdf(project_naam, res) {
             Ok(bytes) => {
                 let path = std::env::temp_dir().join("speeltoestel-bom.pdf");
-                if let Err(e) = std::fs::write(&path, bytes) {
-                    self.status = format!("PDF wegschrijven mislukt: {e}");
-                    return;
+                match std::fs::write(&path, bytes) {
+                    Ok(()) => {
+                        self.print_pdf_pad = Some(path);
+                        self.laad_printers();
+                        self.toon_print_dialog = true;
+                    }
+                    Err(e) => self.status = format!("PDF wegschrijven mislukt: {e}"),
                 }
-                let p = path.to_string_lossy().to_string();
-                let print_res = if cfg!(target_os = "windows") {
-                    std::process::Command::new("powershell")
-                        .args([
-                            "-NoProfile",
-                            "-Command",
-                            &format!("Start-Process -FilePath \"{p}\" -Verb Print"),
-                        ])
-                        .spawn()
-                        .map(|_| ())
-                } else {
-                    std::process::Command::new("lp").arg(&p).spawn().map(|_| ())
-                };
-                self.status = match print_res {
-                    Ok(()) => format!("PDF direct naar de printer verstuurd — bestand: {p}"),
-                    Err(e) => format!("Direct printen mislukt: {e} — PDF staat klaar op {p}"),
-                };
             }
             Err(e) => self.status = format!("PDF genereren mislukt: {e}"),
         }
+    }
+
+    fn laad_printers(&mut self) {
+        self.printers.clear();
+        self.printer_keuze.clear();
+        if cfg!(target_os = "windows") {
+            if let Ok(out) = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", "Get-Printer | Select-Object -ExpandProperty Name"])
+                .output()
+            {
+                for lijn in String::from_utf8_lossy(&out.stdout).lines() {
+                    let n = lijn.trim();
+                    if !n.is_empty() {
+                        self.printers.push(n.to_string());
+                    }
+                }
+            }
+        } else {
+            let mut default = String::new();
+            if let Ok(out) = std::process::Command::new("lpstat").arg("-d").output() {
+                let t = String::from_utf8_lossy(&out.stdout);
+                if let Some(naam) = t.split(':').nth(1).map(|x| x.trim().to_string()) {
+                    default = naam;
+                }
+            }
+            if let Ok(out) = std::process::Command::new("lpstat").arg("-p").output() {
+                for lijn in String::from_utf8_lossy(&out.stdout).lines() {
+                    let mut it = lijn.split_whitespace();
+                    if it.next() == Some("printer") {
+                        if let Some(naam) = it.next() {
+                            self.printers.push(naam.to_string());
+                        }
+                    }
+                }
+            }
+            if !default.is_empty() && self.printers.contains(&default) {
+                self.printer_keuze = default;
+            } else if let Some(eerste) = self.printers.first() {
+                self.printer_keuze = eerste.clone();
+            }
+        }
+    }
+
+    fn verstuur_print(&mut self) {
+        let Some(pad) = self.print_pdf_pad.clone() else {
+            return;
+        };
+        let p = pad.to_string_lossy().to_string();
+        let res = if cfg!(target_os = "windows") {
+            std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!("Start-Process -FilePath \"{p}\" -Verb Print"),
+                ])
+                .spawn()
+                .map(|_| ())
+        } else {
+            let mut cmd = std::process::Command::new("lp");
+            if !self.printer_keuze.is_empty() {
+                cmd.arg("-d").arg(&self.printer_keuze);
+            }
+            cmd.arg(&p).spawn().map(|_| ())
+        };
+        let welke = if self.printer_keuze.is_empty() {
+            "standaardprinter".to_string()
+        } else {
+            self.printer_keuze.clone()
+        };
+        self.status = match res {
+            Ok(()) => format!("PDF verstuurd naar printer '{welke}' — bestand: {p}"),
+            Err(e) => format!("Printen mislukt: {e} — PDF staat klaar op {p}"),
+        };
+        self.toon_print_dialog = false;
+    }
+
+    fn print_dialog(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Afdrukken")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.set_width(400.0);
+                ui.label("Kies een printer voor de Bill of Materials + zaagplan:");
+                ui.add_space(6.0);
+                if self.printers.is_empty() {
+                    ui.label("Geen printers gevonden — wordt naar de standaardprinter verstuurd.");
+                }
+                let mut keuze = self.printer_keuze.clone();
+                egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+                    for p in &self.printers {
+                        ui.radio_value(&mut keuze, p.clone(), p);
+                    }
+                });
+                self.printer_keuze = keuze;
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if primary_button(ui, "Afdrukken").clicked() {
+                        self.verstuur_print();
+                    }
+                    if ui.button("Annuleren").clicked() {
+                        self.toon_print_dialog = false;
+                    }
+                });
+            });
     }
 
     fn tab_calculatie(&mut self, ui: &mut egui::Ui) {
@@ -1284,6 +1393,9 @@ impl eframe::App for App {
         if self.setup_nodig {
             self.setup_modal(ctx);
         }
+        if self.toon_print_dialog {
+            self.print_dialog(ctx);
+        }
         self.autosave();
     }
 
@@ -1337,5 +1449,8 @@ mod tests {
         let bytes = app.maak_pdf("Testproject", &res).unwrap();
         assert!(bytes.starts_with(b"%PDF"));
         assert!(bytes.len() > 1000);
+        // euroteken (U+20AC) moet in de tekststream zitten (als hex 20AC)
+        let pdf_str = String::from_utf8_lossy(&bytes);
+        assert!(pdf_str.contains("20AC"), "euroteken ontbreekt in PDF");
     }
 }

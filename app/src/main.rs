@@ -127,6 +127,10 @@ struct App {
     setup_nodig: bool,
     map_keuze: Option<PathBuf>,
     last_saved: String,
+    calc_cache: Option<(String, Berekening)>,
+    calc_dirty: bool,
+    calc_loading: bool,
+    calc_loading_since: Option<std::time::Instant>,
     toon_print_dialog: bool,
     printers: Vec<String>,
     printer_keuze: String,
@@ -146,6 +150,8 @@ impl Default for App {
             projecten: vec![ProjectEntry {
                 id: "pr1".to_string(),
                 naam: "Voorbeeldproject".to_string(),
+                calc_hash: None,
+                calc_totaal: None,
                 regels: vec![
                     ProjectLijn::Zaagdeel {
                         id: "l1".to_string(),
@@ -166,6 +172,10 @@ impl Default for App {
             setup_nodig: false,
             map_keuze: None,
             last_saved: String::new(),
+            calc_cache: None,
+            calc_dirty: true,
+            calc_loading: false,
+            calc_loading_since: None,
             toon_print_dialog: false,
             printers: Vec::new(),
             printer_keuze: String::new(),
@@ -268,6 +278,8 @@ impl App {
                                 id: nieuw_id(),
                                 naam: "Geïmporteerd project".to_string(),
                                 regels,
+                                calc_hash: None,
+                                calc_totaal: None,
                             }];
                         }
                     }
@@ -328,6 +340,7 @@ impl App {
         if state == self.last_saved {
             return;
         }
+        self.calc_dirty = true;
         self.forceer_opslaan();
         self.last_saved = state;
         self.status = format!(
@@ -364,6 +377,43 @@ impl App {
             .and_then(|id| self.projecten.iter().find(|p| &p.id == id))
     }
 
+    fn state_hash(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.huidige_state_json().hash(&mut h);
+        h.finish()
+    }
+
+    fn compute_calculatie(&mut self) {
+        let Some(project) = self.huidig_project() else {
+            self.calc_cache = None;
+            self.calc_dirty = false;
+            return;
+        };
+        let id = project.id.clone();
+        let regels = project.regels.clone();
+        let res = bereken_project(&self.catalogus, &regels);
+        let hash = self.state_hash();
+        self.calc_cache = Some((id.clone(), res.clone()));
+        self.calc_dirty = false;
+        if let Some(p) = self.projecten.iter_mut().find(|p| p.id == id) {
+            p.calc_hash = Some(format!("{hash:x}"));
+            p.calc_totaal = Some(res.totaal_excl);
+        }
+        self.last_saved = self.huidige_state_json();
+    }
+
+    fn open_calculatie(&mut self) {
+        let current = self.huidig_project.clone();
+        let verouderd = self.calc_dirty
+            || self.calc_cache.as_ref().map_or(true, |(id, _)| Some(id) != current.as_ref());
+        if verouderd {
+            self.calc_loading = true;
+            self.calc_loading_since = Some(std::time::Instant::now());
+        }
+        self.tab = Tab::Calculatie;
+    }
+
     fn sidebar(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("sidebar")
             .frame(
@@ -387,7 +437,11 @@ impl App {
                         egui::SelectableLabel::new(selected, egui::RichText::new(tab.label()).size(15.0)),
                     );
                     if response.clicked() {
-                        self.tab = tab;
+                        if tab == Tab::Calculatie {
+                            self.open_calculatie();
+                        } else {
+                            self.tab = tab;
+                        }
                     }
                     ui.add_space(4.0);
                 }
@@ -518,6 +572,8 @@ impl App {
                 let id = nieuw_id();
                 self.projecten.push(ProjectEntry {
                     id: id.clone(),
+                    calc_hash: None,
+                    calc_totaal: None,
                     naam,
                     regels: Vec::new(),
                 });
@@ -1313,10 +1369,20 @@ impl App {
             ui.label("Geen project geopend. Kies een project in het tabblad Projecten.");
             return;
         };
-        let regels = project.regels.clone();
         let naam = project.naam.clone();
+        let project_id = project.id.clone();
         ui.heading(format!("Calculatie: {naam}"));
-        let res = bereken_project(&self.catalogus, &regels);
+        // gebruik de cached calculatie; alleen herberekenen als deze ontbreekt
+        let res = match &self.calc_cache {
+            Some((id, r)) if id == &project_id && !self.calc_dirty => r.clone(),
+            _ => {
+                let regels = project.regels.clone();
+                let r = bereken_project(&self.catalogus, &regels);
+                self.calc_cache = Some((project_id.clone(), r.clone()));
+                self.calc_dirty = false;
+                r
+            }
+        };
         ui.horizontal(|ui| {
             if primary_button(ui, "Afdrukken (PDF)…").clicked() {
                 self.afdrukken(&naam, &res);
@@ -1430,6 +1496,32 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.calc_loading {
+            if let Some(since) = self.calc_loading_since {
+                if since.elapsed() >= std::time::Duration::from_millis(400) {
+                    self.compute_calculatie();
+                    self.calc_loading = false;
+                    self.calc_loading_since = None;
+                } else {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(30));
+                }
+            }
+            egui::Window::new("calc_loading")
+                .title_bar(false)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.set_width(280.0);
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Spinner::new().size(30.0));
+                        ui.label(egui::RichText::new("Calculatie wordt uitgevoerd…").size(15.0));
+                    });
+                });
+            if self.calc_loading {
+                ctx.request_repaint_after(std::time::Duration::from_millis(30));
+            }
+        }
         ctx.style_mut(|s| {
             s.spacing.slider_width = 150.0;
             s.spacing.interact_size = egui::vec2(150.0, 32.0);

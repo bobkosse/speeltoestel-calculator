@@ -22,6 +22,12 @@ pub struct ProjectEntry {
     pub naam: String,
     #[serde(default)]
     pub regels: Vec<ProjectLijn>,
+    /// Hash van (materialen + project) op moment van laatste calculatie.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calc_hash: Option<String>,
+    /// Totaal excl. BTW van de laatste calculatie.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calc_totaal: Option<f64>,
 }
 
 /// Projectenbestand: álle projecten in één JSON-bestand.

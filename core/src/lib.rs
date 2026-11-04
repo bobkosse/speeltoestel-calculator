@@ -240,6 +240,8 @@ mod tests {
             projecten: vec![ProjectEntry {
                 id: "pr1".into(),
                 naam: "Speeltoren".into(),
+                calc_hash: None,
+                calc_totaal: None,
                 regels: vec![
                     ProjectLijn::Zaagdeel {
                         id: "l1".into(),

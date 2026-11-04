@@ -8,9 +8,9 @@ use speeltoestel_core::optimizer::bereken_project;
 
 static ID_TELLER: AtomicU64 = AtomicU64::new(0);
 
-const ACCENT: egui::Color32 = egui::Color32::from_rgb(0xC0, 0x85, 0x52);
-const SIDEBAR_BG: egui::Color32 = egui::Color32::from_rgb(0x21, 0x1C, 0x17);
-const PANEL_BG: egui::Color32 = egui::Color32::from_rgb(0x17, 0x14, 0x11);
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(0xA0, 0x62, 0x2D);
+const SIDEBAR_BG: egui::Color32 = egui::Color32::from_rgb(0xF0, 0xEA, 0xE2);
+const PANEL_BG: egui::Color32 = egui::Color32::from_rgb(0xFB, 0xF9, 0xF6);
 
 fn nieuw_id() -> String {
     let n = ID_TELLER.fetch_add(1, Ordering::SeqCst);
@@ -834,8 +834,13 @@ fn main() -> eframe::Result<()> {
         "Speeltoestel Calculator",
         options,
         Box::new(|cc| {
-            let mut visuals = egui::Visuals::dark();
+            let mut visuals = egui::Visuals::light();
             visuals.panel_fill = PANEL_BG;
+            visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::BLACK);
+            visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::BLACK);
+            visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::BLACK);
+            visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::BLACK);
+            visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::BLACK);
             visuals.selection.bg_fill = ACCENT;
             visuals.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
             visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);

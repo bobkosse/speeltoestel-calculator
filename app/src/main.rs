@@ -445,6 +445,7 @@ impl App {
     }
 
     fn tab_projecten(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
         card(ui, |ui| {
         ui.heading("Projecten");
         ui.label("Alle projecten staan in één bestand. Open een project om de onderdelen te bewerken.");
@@ -524,6 +525,7 @@ impl App {
                 self.nieuwe_project_naam.clear();
                 self.tab = Tab::Project;
             }
+        });
         });
         });
     }
@@ -670,7 +672,6 @@ impl App {
                 let profiel_id = self.catalogus.profielen[pi].id.clone();
                 egui::CollapsingHeader::new(format!("Profiel: {}", self.catalogus.profielen[pi].naam()))
                     .id_salt(&profiel_id)
-                    .default_open(true)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Houtsoort:");
@@ -922,9 +923,11 @@ impl App {
         ui.heading(format!("Project: {naam}"));
         ui.label("Benodigde onderdelen voor dit project.");
         ui.add_space(4.0);
-        card(ui, |ui| {
-            let regels = &mut self.projecten[pos].regels;
-            Self::regels_editor(&self.catalogus, ui, regels);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            card(ui, |ui| {
+                let regels = &mut self.projecten[pos].regels;
+                Self::regels_editor(&self.catalogus, ui, regels);
+            });
         });
     }
 

@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use eframe::egui;
 use eframe::egui::Widget;
 use speeltoestel_core::model::{Catalogus, InkoopOptie, PerStuk, Profiel, ProjectEntry, ProjectLijn, ProjectenData};
-use speeltoestel_core::optimizer::bereken_project;
+use speeltoestel_core::optimizer::{bereken_project, Berekening};
 
 static ID_TELLER: AtomicU64 = AtomicU64::new(0);
 
@@ -28,6 +28,45 @@ fn danger_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
         egui::Button::new(egui::RichText::new(text).color(DANGER))
             .min_size(egui::vec2(0.0, 32.0)),
     )
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn datum_vandaag() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = (secs / 86400) as i64;
+    let mut year = 1970i64;
+    let mut rest = days;
+    loop {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let yd = if leap { 366 } else { 365 };
+        if rest >= yd {
+            year += 1;
+            rest -= yd;
+        } else {
+            break;
+        }
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 1;
+    for m in mdays {
+        if rest >= m {
+            rest -= m;
+            month += 1;
+        } else {
+            break;
+        }
+    }
+    format!("{:04}-{:02}-{:02}", year, month, rest + 1)
 }
 
 fn text_field(ui: &mut egui::Ui, text: &mut String, width: f32) -> egui::Response {
@@ -775,6 +814,133 @@ impl App {
         });
     }
 
+    fn bom_html(&self, project_naam: &str, res: &Berekening) -> String {
+        let mut bom_rows = String::new();
+        for zr in &res.zaag_resultaten {
+            match &zr.resultaat {
+                Some(r) => {
+                    for (lengte, prijs, aantal, bedrag) in &r.per_lengte {
+                        bom_rows.push_str(&format!(
+                            "<tr><td>{}</td><td>{} mm</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                            html_escape(&zr.profiel.naam()),
+                            lengte,
+                            aantal,
+                            self.fmt_bedrag(*prijs),
+                            self.fmt_bedrag(*bedrag)
+                        ));
+                    }
+                }
+                None => {
+                    bom_rows.push_str(&format!(
+                        "<tr><td>{}</td><td colspan=\"4\" style=\"color:#B3261E\">geen passende inkooplengte</td></tr>",
+                        html_escape(&zr.profiel.naam())
+                    ));
+                }
+            }
+        }
+        for l in &res.per_stuk {
+            bom_rows.push_str(&format!(
+                "<tr><td>{}</td><td>per stuk</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                html_escape(&l.naam),
+                l.aantal,
+                self.fmt_bedrag(l.prijs_per_stuk),
+                self.fmt_bedrag(l.kosten)
+            ));
+        }
+
+        let mut zaag_rows = String::new();
+        for zr in &res.zaag_resultaten {
+            if let Some(r) = &zr.resultaat {
+                for (i, bak) in r.bakken.iter().enumerate() {
+                    let stukken: Vec<String> = bak.stukken.iter().map(|s| format!("{s} mm")).collect();
+                    zaag_rows.push_str(&format!(
+                        "<tr><td>{}</td><td>{} ({} mm)</td><td>{}</td><td>{} mm</td></tr>",
+                        html_escape(&zr.profiel.naam()),
+                        i + 1,
+                        bak.lengte,
+                        html_escape(&stukken.join(" + ")),
+                        bak.rest
+                    ));
+                }
+            }
+        }
+        if zaag_rows.is_empty() {
+            zaag_rows = "<tr><td colspan=\"4\">Geen zaagdelen in dit project.</td></tr>".to_string();
+        }
+
+        format!(
+            r#"<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<title>Bill of Materials — {naam}</title>
+<style>
+body {{ font-family: -apple-system, "Segoe UI", Arial, sans-serif; margin: 32px; color: #111; }}
+h1 {{ font-size: 22px; color: #A0622D; }}
+h2 {{ font-size: 17px; margin-top: 28px; }}
+table {{ border-collapse: collapse; width: 100%; margin-top: 8px; }}
+th, td {{ border: 1px solid #ccc; padding: 6px 10px; text-align: left; }}
+th {{ background: #F0EAE2; }}
+.totaal td {{ font-weight: bold; font-size: 17px; color: #A0622D; border-top: 2px solid #A0622D; }}
+button {{ font-size: 15px; padding: 8px 16px; background: #A0622D; color: #fff; border: none; border-radius: 8px; cursor: pointer; }}
+.meta {{ color: #666; font-size: 13px; }}
+@media print {{ button {{ display: none; }} body {{ margin: 0; }} }}
+</style>
+</head>
+<body>
+<button onclick="window.print()">Afdrukken</button>
+<h1>Bill of Materials — {naam}</h1>
+<p class="meta">Gegenereerd op {datum} · Zaagsnede: {zaagsnede} mm per zaagdeel · Alle prijzen excl. BTW</p>
+<h2>Aan te schaffen</h2>
+<table>
+<tr><th>Artikel</th><th>Specificatie</th><th>Aantal</th><th>Prijs/stuk</th><th>Bedrag</th></tr>
+{bom_rows}
+<tr class="totaal"><td>Totaal (excl. BTW)</td><td></td><td></td><td></td><td>{totaal}</td></tr>
+</table>
+<h2>Zaagplan</h2>
+<table>
+<tr><th>Profiel</th><th>Plank</th><th>Te zagen</th><th>Reststuk</th></tr>
+{zaag_rows}
+</table>
+</body>
+</html>"#,
+            naam = html_escape(project_naam),
+            datum = datum_vandaag(),
+            zaagsnede = res.zaagsnede_mm,
+            bom_rows = bom_rows,
+            totaal = self.fmt_bedrag(res.totaal_excl),
+            zaag_rows = zaag_rows
+        )
+    }
+
+    fn afdrukken(&mut self, project_naam: &str, res: &Berekening) {
+        let html = self.bom_html(project_naam, res);
+        let path = std::env::temp_dir().join("speeltoestel-bom.html");
+        match std::fs::write(&path, html) {
+            Ok(()) => {
+                let p = path.to_string_lossy().to_string();
+                let spawned = if cfg!(target_os = "macos") {
+                    std::process::Command::new("open").arg(&p).spawn()
+                } else if cfg!(target_os = "windows") {
+                    std::process::Command::new("cmd").args(["/C", "start", "", &p]).spawn()
+                } else {
+                    std::process::Command::new("xdg-open").arg(&p).spawn()
+                };
+                self.status = match spawned {
+                    Ok(_) => format!(
+                        "BOM + zaagplan geopend in de browser — afdrukken met Cmd+P / Ctrl+P ({})",
+                        path.display()
+                    ),
+                    Err(e) => format!(
+                        "Browser openen mislukt: {e} — HTML staat klaar op {}",
+                        path.display()
+                    ),
+                };
+            }
+            Err(e) => self.status = format!("HTML wegschrijven mislukt: {e}"),
+        }
+    }
+
     fn tab_calculatie(&mut self, ui: &mut egui::Ui) {
         let Some(project) = self.huidig_project() else {
             ui.heading("Calculatie");
@@ -785,6 +951,11 @@ impl App {
         let naam = project.naam.clone();
         ui.heading(format!("Calculatie: {naam}"));
         let res = bereken_project(&self.catalogus, &regels);
+        ui.horizontal(|ui| {
+            if primary_button(ui, "Afdrukken / exporteren…").clicked() {
+                self.afdrukken(&naam, &res);
+            }
+        });
         ui.label(format!(
             "Zaagsnede: {} mm per zaagdeel — elk deel kost lengte + zaagsnede uit de ingekochte plank (een stuk van 1000 mm uit een plank van 2000 mm laat dus 997 mm rest over).",
             res.zaagsnede_mm

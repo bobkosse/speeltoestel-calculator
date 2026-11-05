@@ -20,14 +20,51 @@ pub struct ProjectEntry {
     pub id: String,
     #[serde(default)]
     pub naam: String,
-    #[serde(default)]
+    /// Legacy: regels direct op project (worden gemigreerd naar groepen).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub regels: Vec<ProjectLijn>,
+    /// Groepen met onderdelen binnen dit project.
+    #[serde(default)]
+    pub groepen: Vec<ProjectGroep>,
     /// Hash van (materialen + project) op moment van laatste calculatie.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calc_hash: Option<String>,
     /// Totaal excl. BTW van de laatste calculatie.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calc_totaal: Option<f64>,
+}
+
+/// Een groep onderdelen binnen een project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGroep {
+    pub id: String,
+    #[serde(default)]
+    pub naam: String,
+    #[serde(default)]
+    pub regels: Vec<ProjectLijn>,
+}
+
+impl ProjectEntry {
+    /// Alle regels van alle groepen (platte lijst).
+    pub fn alle_regels(&self) -> Vec<ProjectLijn> {
+        let mut regels = self.regels.clone();
+        for g in &self.groepen {
+            regels.extend(g.regels.iter().cloned());
+        }
+        regels
+    }
+
+    /// Migreer legacy regels naar een groep.
+    pub fn migreer_regels_naar_groepen(&mut self) {
+        if !self.regels.is_empty() {
+            let regels = std::mem::take(&mut self.regels);
+            self.groepen.push(ProjectGroep {
+                id: "groep-algemeen".to_string(),
+                naam: "Algemeen".to_string(),
+                regels,
+            });
+        }
+    }
 }
 
 /// Projectenbestand: álle projecten in één JSON-bestand.

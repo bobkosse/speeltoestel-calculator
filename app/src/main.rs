@@ -152,7 +152,11 @@ impl Default for App {
                 naam: "Voorbeeldproject".to_string(),
                 calc_hash: None,
                 calc_totaal: None,
-                regels: vec![
+                regels: Vec::new(),
+                groepen: vec![speeltoestel_core::model::ProjectGroep {
+                    id: "g1".to_string(),
+                    naam: "Algemeen".to_string(),
+                    regels: vec![
                     ProjectLijn::Zaagdeel {
                         id: "l1".to_string(),
                         profiel_id: Some("p1".to_string()),
@@ -165,7 +169,8 @@ impl Default for App {
                         materiaal_id: Some("s1".to_string()),
                         aantal: 24,
                     },
-                ],
+                    ],
+                }],
             }],
             huidig_project: Some("pr1".to_string()),
             werkmap: None,
@@ -278,10 +283,14 @@ impl App {
                                 id: nieuw_id(),
                                 naam: "Geïmporteerd project".to_string(),
                                 regels,
+                                groepen: Vec::new(),
                                 calc_hash: None,
                                 calc_totaal: None,
                             }];
                         }
+                    }
+                    for p in self.projecten.iter_mut() {
+                        p.migreer_regels_naar_groepen();
                     }
                     self.huidig_project = self.projecten.first().map(|p| p.id.clone());
                 }
@@ -391,7 +400,7 @@ impl App {
             return;
         };
         let id = project.id.clone();
-        let regels = project.regels.clone();
+        let regels = project.alle_regels();
         let res = bereken_project(&self.catalogus, &regels);
         let hash = self.state_hash();
         self.calc_cache = Some((id.clone(), res.clone()));
@@ -576,6 +585,7 @@ impl App {
                     calc_totaal: None,
                     naam,
                     regels: Vec::new(),
+                    groepen: Vec::new(),
                 });
                 self.huidig_project = Some(id);
                 self.nieuwe_project_naam.clear();
@@ -977,12 +987,60 @@ impl App {
         };
         let naam = self.projecten[pos].naam.clone();
         ui.heading(format!("Project: {naam}"));
-        ui.label("Benodigde onderdelen voor dit project.");
+        ui.label("Onderdelen per groep. Groepen kun je in- en uitklappen.");
         ui.add_space(4.0);
         egui::ScrollArea::vertical().show(ui, |ui| {
-            card(ui, |ui| {
-                let regels = &mut self.projecten[pos].regels;
-                Self::regels_editor(&self.catalogus, ui, regels);
+            let mut verwijder_groep: Option<String> = None;
+            let mut nieuwe_groep_naam = String::new();
+            let groepen_len = self.projecten[pos].groepen.len();
+            for gi in 0..groepen_len {
+                let groep_id = self.projecten[pos].groepen[gi].id.clone();
+                let mut naam = self.projecten[pos].groepen[gi].naam.clone();
+                egui::CollapsingHeader::new(format!("Groep: {naam}"))
+                    .id_salt(format!("groep_{groep_id}"))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Groepsnaam:");
+                            egui::TextEdit::singleline(&mut naam)
+                                .desired_width(240.0)
+                                .ui(ui);
+                            if naam != self.projecten[pos].groepen[gi].naam {
+                                self.projecten[pos].groepen[gi].naam = naam;
+                            }
+                            if danger_button(ui, "Groep verwijderen").clicked() {
+                                verwijder_groep = Some(groep_id.clone());
+                            }
+                        });
+                        ui.add_space(4.0);
+                        card(ui, |ui| {
+                            let regels = &mut self.projecten[pos].groepen[gi].regels;
+                            Self::regels_editor(&self.catalogus, ui, regels);
+                        });
+                    });
+                ui.add_space(6.0);
+            }
+            if let Some(gid) = verwijder_groep {
+                self.projecten[pos].groepen.retain(|g| g.id != gid);
+            }
+            ui.horizontal(|ui| {
+                egui::TextEdit::singleline(&mut nieuwe_groep_naam)
+                    .desired_width(240.0)
+                    .hint_text("Naam nieuwe groep")
+                    .ui(ui);
+                if primary_button(ui, "+ Nieuwe groep").clicked() {
+                    let naam = if nieuwe_groep_naam.trim().is_empty() {
+                        format!("Groep {}", self.projecten[pos].groepen.len() + 1)
+                    } else {
+                        nieuwe_groep_naam.trim().to_string()
+                    };
+                    self.projecten[pos].groepen.push(speeltoestel_core::model::ProjectGroep {
+                        id: nieuw_id(),
+                        naam,
+                        regels: Vec::new(),
+                    });
+                    nieuwe_groep_naam.clear();
+                }
             });
         });
     }
@@ -1446,7 +1504,7 @@ impl App {
         let res = match &self.calc_cache {
             Some((id, r)) if id == &project_id && !self.calc_dirty => r.clone(),
             _ => {
-                let regels = project.regels.clone();
+                let regels = project.alle_regels();
                 let r = bereken_project(&self.catalogus, &regels);
                 self.calc_cache = Some((project_id.clone(), r.clone()));
                 self.calc_dirty = false;

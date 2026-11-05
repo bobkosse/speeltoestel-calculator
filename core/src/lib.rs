@@ -277,6 +277,7 @@ mod tests {
                 naam: "Speeltoren".into(),
                 calc_hash: None,
                 calc_totaal: None,
+                groepen: Vec::new(),
                 regels: vec![
                     ProjectLijn::Zaagdeel {
                         id: "l1".into(),

@@ -990,26 +990,50 @@ impl App {
     fn maak_pdf(&self, project_naam: &str, res: &Berekening) -> Result<Vec<u8>, String> {
         use printpdf::*;
 
-        static HELVETICA: &[u8] = include_bytes!("../assets/fonts/Helvetica.ttf");
-        static HELVETICA_BOLD: &[u8] = include_bytes!("../assets/fonts/Helvetica-Bold.ttf");
-        let mut doc = PdfDocument::new("Bill of Materials");
-        let font = doc
-            .add_font(&ParsedFont::from_bytes(HELVETICA, 0, &mut Vec::new()).ok_or("font laden mislukt")?);
-        let font_bold = doc
-            .add_font(&ParsedFont::from_bytes(HELVETICA_BOLD, 0, &mut Vec::new()).ok_or("font laden mislukt")?);
-
         const PAGE_W: f64 = 210.0;
         const PAGE_H: f64 = 297.0;
         const MARGIN: f64 = 15.0;
-        const ROW_H: f64 = 7.0;
 
         let zwart = Color::Rgb(Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None });
         let accent = Color::Rgb(Rgb { r: 0.63, g: 0.38, b: 0.18, icc_profile: None });
         let grijs = Color::Rgb(Rgb { r: 0.45, g: 0.45, b: 0.45, icc_profile: None });
 
+        // geschatte tekenbreedte Helvetica: ~0,5 em; 1 pt = 0,3528 mm
+        fn char_w(size: f64) -> f64 {
+            size * 0.3528 * 0.5
+        }
+        fn wrap_tekst(s: &str, max_mm: f64, size: f64) -> Vec<String> {
+            let cw = char_w(size);
+            let mut lines = Vec::new();
+            for part in s.split(" + ") {
+                let mut line = String::new();
+                for word in part.split(' ') {
+                    let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+                    if candidate.len() as f64 * cw <= max_mm || line.is_empty() {
+                        line = candidate;
+                    } else {
+                        lines.push(line);
+                        line = word.to_string();
+                    }
+                }
+                if !line.is_empty() {
+                    lines.push(line);
+                }
+                lines.push("+".to_string());
+            }
+            if lines.last().map_or(false, |l| l == "+") {
+                lines.pop();
+            }
+            if lines.is_empty() {
+                lines.push(String::new());
+            }
+            lines
+        }
+
         struct Bouwer {
             ops: Vec<Op>,
             y: f64,
+            pages: Vec<Vec<Op>>,
             zwart: Color,
             accent: Color,
             grijs: Color,
@@ -1017,22 +1041,15 @@ impl App {
             font_bold: FontId,
         }
         impl Bouwer {
-            fn new_page(&mut self, pages: &mut Vec<PdfPage>) {
+            fn new_page(&mut self) {
                 if !self.ops.is_empty() {
-                    self.footer();
-                    pages.push(PdfPage::new(Mm(PAGE_W as f32), Mm(PAGE_H as f32), std::mem::take(&mut self.ops)));
+                    self.pages.push(std::mem::take(&mut self.ops));
                 }
                 self.y = MARGIN;
             }
-            fn footer(&mut self) {
-                let tekst = "Afgedrukt met Speelgoed Calculator van Robuust Buitenspelen";
-                self.lijn(MARGIN, PAGE_H - 12.0, PAGE_W - MARGIN, PAGE_H - 12.0);
-                // Helvetica ~0,5 em gemiddelde tekenbreedte: 7,5 pt ≈ 1,32 mm per teken
-                self.tekst_op(tekst, (PAGE_W - tekst.len() as f64 * 1.35) / 2.0, PAGE_H - 10.0, 7.5, false, &self.grijs.clone());
-            }
-            fn ensure(&mut self, h: f64, pages: &mut Vec<PdfPage>) {
-                if self.y + h > PAGE_H - MARGIN {
-                    self.new_page(pages);
+            fn ensure(&mut self, h: f64) {
+                if self.y + h > PAGE_H - MARGIN - 14.0 {
+                    self.new_page();
                 }
             }
             fn tekst(&mut self, s: &str, x: f64, size: f64, bold: bool, kleur: &Color) {
@@ -1066,17 +1083,18 @@ impl App {
                     },
                 });
             }
-            fn tabel(&mut self, pages: &mut Vec<PdfPage>, cols: &[(f64, &str)], rows: &[Vec<String>], totaal: Option<Vec<String>>) {
+            fn tabel(&mut self, cols: &[(f64, &str)], rows: &[Vec<String>], totaal: Option<Vec<String>>) {
                 let x0 = MARGIN;
                 let totaal_w: f64 = cols.iter().map(|(w, _)| w).sum();
-                self.ensure(ROW_H, pages);
+                let header_h = 8.0;
+                self.ensure(header_h);
                 let yh = self.y;
                 let mut x = x0;
                 for (w, h) in cols {
-                    self.tekst(h, x + 1.5, 9.0, true, &self.zwart.clone());
+                    self.tekst_op(h, x + 1.5, yh + 5.5, 9.0, true, &self.zwart.clone());
                     x += w;
                 }
-                self.y += ROW_H;
+                self.y += header_h;
                 self.lijn(x0, yh, x0 + totaal_w, yh);
                 self.lijn(x0, self.y, x0 + totaal_w, self.y);
                 let mut x = x0;
@@ -1085,15 +1103,33 @@ impl App {
                     x += w;
                 }
                 self.lijn(x0 + totaal_w, yh, x0 + totaal_w, self.y);
-                for row in rows {
-                    self.ensure(ROW_H, pages);
+
+                let mut alle_rows: Vec<(Vec<String>, bool)> = rows.iter().map(|r| (r.clone(), false)).collect();
+                if let Some(t) = totaal {
+                    alle_rows.push((t, true));
+                }
+                for (row, is_totaal) in alle_rows {
+                    let size = if is_totaal { 9.5 } else { 8.5 };
+                    let line_h = size * 0.3528 * 1.25 + 1.0;
+                    let mut cell_lines: Vec<Vec<String>> = Vec::new();
+                    let mut max_lines = 1;
+                    for (i, (w, _)) in cols.iter().enumerate() {
+                        let wrapped = wrap_tekst(&row[i], w - 3.0, size);
+                        max_lines = max_lines.max(wrapped.len());
+                        cell_lines.push(wrapped);
+                    }
+                    let row_h = max_lines as f64 * line_h + 2.0;
+                    self.ensure(row_h);
                     let yr = self.y;
                     let mut x = x0;
                     for (i, (w, _)) in cols.iter().enumerate() {
-                        self.tekst(&row[i], x + 1.5, 8.5, false, &self.zwart.clone());
+                        for (li, line) in cell_lines[i].iter().enumerate() {
+                            let kleur = if is_totaal { self.accent.clone() } else { self.zwart.clone() };
+                            self.tekst_op(line, x + 1.5, yr + 2.5 + li as f64 * line_h, size, is_totaal, &kleur);
+                        }
                         x += w;
                     }
-                    self.y += ROW_H;
+                    self.y += row_h;
                     self.lijn(x0, self.y, x0 + totaal_w, self.y);
                     let mut x = x0;
                     for (w, _) in cols {
@@ -1102,23 +1138,55 @@ impl App {
                     }
                     self.lijn(x0 + totaal_w, yr, x0 + totaal_w, self.y);
                 }
-                if let Some(t) = totaal {
-                    self.ensure(ROW_H, pages);
-                    let yr = self.y;
-                    let mut x = x0;
-                    for (i, (w, _)) in cols.iter().enumerate() {
-                        self.tekst(&t[i], x + 1.5, 9.5, true, &self.accent.clone());
-                        x += w;
-                    }
-                    self.y += ROW_H;
-                    self.lijn(x0, yr, x0 + totaal_w, yr);
-                    self.lijn(x0, self.y, x0 + totaal_w, self.y);
+            }
+            fn finish(mut self) -> Vec<PdfPage> {
+                if !self.ops.is_empty() {
+                    self.pages.push(std::mem::take(&mut self.ops));
                 }
+                let totaal = self.pages.len();
+                let mut out = Vec::new();
+                for (i, mut ops) in self.pages.into_iter().enumerate() {
+                    // footer: lijn + gecentreerde tekst + paginanummer rechts
+                    let mut tmp = Bouwer {
+                        ops: std::mem::take(&mut ops),
+                        y: 0.0,
+                        pages: Vec::new(),
+                        zwart: self.zwart.clone(),
+                        accent: self.accent.clone(),
+                        grijs: self.grijs.clone(),
+                        font: self.font.clone(),
+                        font_bold: self.font_bold.clone(),
+                    };
+                    tmp.lijn(MARGIN, PAGE_H - 12.0, PAGE_W - MARGIN, PAGE_H - 12.0);
+                    let tekst = "Afgedrukt met Speelgoed Calculator van Robuust Buitenspelen";
+                    tmp.tekst_op(tekst, (PAGE_W - tekst.len() as f64 * char_w(7.5)) / 2.0, PAGE_H - 10.0, 7.5, false, &tmp.grijs.clone());
+                    let pag = format!("Pagina {} van {}", i + 1, totaal);
+                    tmp.tekst_op(&pag, PAGE_W - MARGIN - pag.len() as f64 * char_w(7.5), PAGE_H - 10.0, 7.5, false, &tmp.grijs.clone());
+                    ops = tmp.ops;
+                    out.push(PdfPage::new(Mm(PAGE_W as f32), Mm(PAGE_H as f32), ops));
+                }
+                out
             }
         }
 
-        let mut pages: Vec<PdfPage> = Vec::new();
-        let mut b = Bouwer { ops: Vec::new(), y: MARGIN, zwart: zwart.clone(), accent: accent.clone(), grijs: grijs.clone(), font: font.clone(), font_bold: font_bold.clone() };
+        static HELVETICA: &[u8] = include_bytes!("../assets/fonts/Helvetica.ttf");
+        static HELVETICA_BOLD: &[u8] = include_bytes!("../assets/fonts/Helvetica-Bold.ttf");
+        let mut doc = PdfDocument::new("Bill of Materials");
+        let font = doc
+            .add_font(&ParsedFont::from_bytes(HELVETICA, 0, &mut Vec::new()).ok_or("font laden mislukt")?);
+        let font_bold = doc
+            .add_font(&ParsedFont::from_bytes(HELVETICA_BOLD, 0, &mut Vec::new()).ok_or("font laden mislukt")?);
+
+        let mut b = Bouwer {
+            ops: Vec::new(),
+            y: MARGIN,
+            pages: Vec::new(),
+            zwart: zwart.clone(),
+            accent: accent.clone(),
+            grijs: grijs.clone(),
+            font: font.clone(),
+            font_bold: font_bold.clone(),
+        };
 
         b.tekst(&format!("Bill of Materials — {project_naam}"), MARGIN, 16.0, true, &accent);
         b.y += 10.0;
@@ -1137,7 +1205,7 @@ impl App {
 
         b.tekst("Aan te schaffen", MARGIN, 12.0, true, &zwart);
         b.y += 8.0;
-        let bom_cols = [(55.0, "Artikel"), (50.0, "Specificatie"), (18.0, "Aantal"), (28.0, "Prijs/stuk"), (29.0, "Bedrag")];
+        let bom_cols = [(48.0, "Artikel"), (55.0, "Specificatie"), (16.0, "Aantal"), (30.0, "Prijs/stuk"), (31.0, "Bedrag")];
         let mut bom_rows: Vec<Vec<String>> = Vec::new();
         for zr in &res.zaag_resultaten {
             match &zr.resultaat {
@@ -1188,12 +1256,12 @@ impl App {
             String::new(),
             self.fmt_bedrag(res.totaal_excl),
         ];
-        b.tabel(&mut pages, &bom_cols, &bom_rows, Some(totaal_row));
+        b.tabel(&bom_cols, &bom_rows, Some(totaal_row));
         b.y += 6.0;
 
         b.tekst("Zaagplan", MARGIN, 12.0, true, &zwart);
         b.y += 8.0;
-        let zaag_cols = [(60.0, "Profiel"), (35.0, "Plank"), (55.0, "Te zagen"), (30.0, "Reststuk")];
+        let zaag_cols = [(45.0, "Profiel"), (30.0, "Plank"), (75.0, "Te zagen"), (30.0, "Reststuk")];
         let mut zaag_rows: Vec<Vec<String>> = Vec::new();
         for zr in &res.zaag_resultaten {
             if let Some(r) = &zr.resultaat {
@@ -1211,15 +1279,14 @@ impl App {
         if zaag_rows.is_empty() {
             zaag_rows.push(vec!["Geen zaagdelen in dit project.".to_string(), String::new(), String::new(), String::new()]);
         }
-        b.tabel(&mut pages, &zaag_cols, &zaag_rows, None);
+        b.tabel(&zaag_cols, &zaag_rows, None);
 
-        b.new_page(&mut pages);
+        let pages = b.finish();
         let bytes = doc
             .with_pages(pages)
             .save(&PdfSaveOptions::default(), &mut Vec::new());
         Ok(bytes)
     }
-
     fn afdrukken(&mut self, project_naam: &str, res: &Berekening) {
         match self.maak_pdf(project_naam, res) {
             Ok(bytes) => {

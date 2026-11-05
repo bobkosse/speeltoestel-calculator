@@ -476,6 +476,11 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
         totaal += kosten;
         zaag_resultaten.push(ZaagResultaat { profiel, stukken, resultaat, kosten });
     }
+    // sorteer per product: dikte, dan breedte, dan houtsoort (zelfde planken bij elkaar)
+    zaag_resultaten.sort_by(|a, b| {
+        (a.profiel.dikte_mm, a.profiel.breedte_mm, a.profiel.houtsoort.clone())
+            .cmp(&(b.profiel.dikte_mm, b.profiel.breedte_mm, b.profiel.houtsoort.clone()))
+    });
     for l in &per_stuk {
         totaal += l.kosten;
     }

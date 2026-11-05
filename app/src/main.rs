@@ -1089,9 +1089,12 @@ impl App {
                 let header_h = 8.0;
                 self.ensure(header_h);
                 let yh = self.y;
+                // koptekst verticaal centreren in de koprij (cap-height ~0,72 em)
+                let cap = 9.0 * 0.3528 * 0.72;
+                let hy = yh + (header_h - cap) / 2.0 + cap;
                 let mut x = x0;
                 for (w, h) in cols {
-                    self.tekst_op(h, x + 1.5, yh + 5.5, 9.0, true, &self.zwart.clone());
+                    self.tekst_op(h, x + 1.5, hy, 9.0, true, &self.zwart.clone());
                     x += w;
                 }
                 self.y += header_h;

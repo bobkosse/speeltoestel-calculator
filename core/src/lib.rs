@@ -82,6 +82,26 @@ mod tests {
     }
 
     #[test]
+    fn zaagresultaten_gesorteerd_per_product() {
+        let mut catalogus = test_catalogus();
+        catalogus.profielen.push(Profiel {
+            id: "p2".into(),
+            houtsoort: "Vuren".into(),
+            dikte_mm: 25,
+            breedte_mm: 100,
+            inkoop: vec![InkoopOptie { lengte_mm: 2000, prijs: 20.0 }],
+        });
+        let project = vec![
+            ProjectLijn::Zaagdeel { id: "a".into(), profiel_id: Some("p1".into()), lengte_mm: 500, breedte_mm: None, aantal: 1 },
+            ProjectLijn::Zaagdeel { id: "b".into(), profiel_id: Some("p2".into()), lengte_mm: 500, breedte_mm: None, aantal: 1 },
+        ];
+        let res = bereken_project(&catalogus, &project);
+        // p2 (25 mm) moet vóór p1 (45 mm)
+        assert_eq!(res.zaag_resultaten[0].profiel.dikte_mm, 25);
+        assert_eq!(res.zaag_resultaten[1].profiel.dikte_mm, 45);
+    }
+
+    #[test]
     fn te_lang_deel_kan_niet() {
         assert!(pack_optimaal(&[2500], 2000, 3).is_none());
     }

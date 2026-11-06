@@ -144,6 +144,50 @@ mod tests {
     }
 
     #[test]
+    fn rechte_bak_voorbeeld_ripped_uit_1_plank() {
+        // Module "Rechte bak": 2× (2000 x 58) + 20 schroeven à €0,0997
+        // 2 stroken van 58 mm uit één 2000x120 plank: 58 + 3 + 58 = 119 <= 120 → 1 plank à €10,50
+        let mut catalogus = test_catalogus();
+        catalogus.per_stuk = vec![PerStuk {
+            id: "s1".into(),
+            naam: "RVS A4 4x50 Torx".into(),
+            prijs: 0.0997,
+            info: String::new(),
+            eenheid: "stuk".into(),
+            aantal_per_eenheid: 200.0,
+            prijs_per_eenheid: 19.94,
+            marge_pct: 300.0,
+        }];
+        catalogus.profielen = vec![Profiel {
+            id: "p1".into(),
+            houtsoort: "Robinia plank (25 mm dik)".into(),
+            dikte_mm: 25,
+            breedte_mm: 120,
+            inkoop: vec![
+                InkoopOptie { lengte_mm: 2000, prijs: 10.50 },
+                InkoopOptie { lengte_mm: 2500, prijs: 13.13 },
+                InkoopOptie { lengte_mm: 3000, prijs: 15.75 },
+            ],
+        }];
+        let entry = ProjectEntry {
+            id: "pr".into(),
+            naam: "t".into(),
+            regels: vec![
+                ProjectLijn::Zaagdeel { id: "a".into(), profiel_id: Some("p1".into()), lengte_mm: 2000, breedte_mm: Some(58), aantal: 2 },
+                ProjectLijn::PerStuk { id: "b".into(), materiaal_id: Some("s1".into()), aantal: 20 },
+            ],
+            groepen: Vec::new(),
+            modules: Vec::new(),
+            calc_hash: None,
+            calc_totaal: None,
+        };
+        let res = bereken_project(&catalogus, &entry);
+        // hout: 1 plank = €10,50; schroeven: 20 × €0,0997 = €1,99 → inkoop €12,49
+        assert_eq!(res.zaag_resultaten[0].resultaat.as_ref().unwrap().aantal, 1);
+        assert_eq!(res.inkoop_totaal, 12.49);
+    }
+
+    #[test]
     fn te_lang_deel_kan_niet() {
         assert!(pack_optimaal(&[2500], 2000, 3).is_none());
     }

@@ -139,6 +139,7 @@ struct App {
     calc_dirty: bool,
     calc_loading: bool,
     calc_loading_since: Option<std::time::Instant>,
+    logo: Option<egui::TextureHandle>,
     toon_print_dialog: bool,
     printers: Vec<String>,
     printer_keuze: String,
@@ -190,6 +191,7 @@ impl Default for App {
             calc_dirty: true,
             calc_loading: false,
             calc_loading_since: None,
+            logo: None,
             toon_print_dialog: false,
             printers: Vec::new(),
             printer_keuze: String::new(),
@@ -443,10 +445,22 @@ impl App {
             )
             .show(ctx, |ui| {
                 ui.add_space(6.0);
-                let logo = egui::include_image!("../assets/logo.png");
-                let lw = 170.0_f32;
-                let lh = lw * 397.0 / 1200.0;
-                ui.add(egui::Image::new(logo).fit_to_exact_size(egui::vec2(lw, lh)));
+                if self.logo.is_none() {
+                    let bytes = include_bytes!("../assets/logo.png");
+                    if let Ok(img) = image::load_from_memory(bytes) {
+                        let rgba = img.to_rgba8();
+                        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+                        let ci = egui::ColorImage::from_rgba_unmultiplied([w, h], rgba.as_raw());
+                        self.logo = Some(ctx.load_texture("robuust-logo", ci, egui::TextureOptions::default()));
+                    }
+                }
+                if let Some(tex) = &self.logo {
+                    let lw = 170.0_f32;
+                    let lh = lw * tex.size()[1] as f32 / tex.size()[0] as f32;
+                    ui.image((tex.id(), egui::vec2(lw, lh)));
+                } else {
+                    ui.label(egui::RichText::new("Speeltoestel Calculator").strong().size(18.0).color(ACCENT));
+                }
                 ui.add_space(18.0);
                 for tab in [Tab::Projecten, Tab::Materialen, Tab::Project, Tab::Calculatie] {
                     let selected = self.tab == tab;
@@ -632,33 +646,33 @@ impl App {
     fn mat_instellingen(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
             ui.heading("Instellingen");
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
+            egui::Grid::new("instellingen_grid")
+                .num_columns(2)
+                .min_col_width(210.0)
+                .spacing([14.0, 10.0])
+                .show(ui, |ui| {
                     ui.label("Zaagsnede (mm):");
                     egui::DragValue::new(&mut self.catalogus.instellingen.zaagsnede_mm)
                         .speed(0.5)
                         .range(0.0..=20.0)
                         .ui(ui);
-                });
-                ui.horizontal(|ui| {
+                    ui.end_row();
                     ui.label("Uurtarief (€/uur):");
                     egui::DragValue::new(&mut self.catalogus.instellingen.uur_tarief)
                         .speed(1.0)
                         .range(0.0..=500.0)
                         .ui(ui);
-                });
-                ui.horizontal(|ui| {
+                    ui.end_row();
                     ui.label("Marge houtinkoop (%):");
                     egui::DragValue::new(&mut self.catalogus.instellingen.marge_hout_pct)
                         .speed(1.0)
                         .range(0.0..=200.0)
                         .ui(ui);
-                });
-                ui.horizontal(|ui| {
+                    ui.end_row();
                     ui.label("Munt:");
-                    text_field(ui, &mut self.catalogus.instellingen.munt, 120.0);
+                    text_field(ui, &mut self.catalogus.instellingen.munt, 150.0);
+                    ui.end_row();
                 });
-            });
         });
     }
 

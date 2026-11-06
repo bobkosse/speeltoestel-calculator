@@ -4030,6 +4030,7 @@ name = "speeltoestel-calculator"
 version = "1.0.0"
 dependencies = [
  "eframe",
+ "image",
  "printpdf",
  "rfd",
  "serde_json",

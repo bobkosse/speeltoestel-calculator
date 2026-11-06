@@ -117,6 +117,7 @@ fn standaard_instellingen() -> Instellingen {
         zaagsnede_mm: 3.0,
         munt: "EUR".to_string(),
         uur_tarief: 45.0,
+        marge_hout_pct: 0.0,
     }
 }
 
@@ -198,6 +199,9 @@ pub struct Instellingen {
     /// Uurtarief inkoop/werk (€/uur) voor calculatie van verkoopprijs.
     #[serde(default = "tarief45")]
     pub uur_tarief: f64,
+    /// Vaste marge (%) op houtinkoop, meegenomen in de verkoopprijs.
+    #[serde(default)]
+    pub marge_hout_pct: f64,
 }
 
 fn tarief45() -> f64 {

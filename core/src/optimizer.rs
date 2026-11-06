@@ -412,6 +412,8 @@ pub struct Berekening {
     pub inkoop_totaal: f64,
     /// Totale marge over losse inkoopproducten.
     pub marge_totaal: f64,
+    /// Marge over houtinkoop (vaste % uit instellingen).
+    pub marge_hout: f64,
     pub uren_totaal: f64,
     /// Arbeidskosten = uur_tarief × uren.
     pub arbeid: f64,
@@ -546,7 +548,9 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
 
     let (per_stuk, zaag_resultaten) = bereken_regels(catalogus, &alle_regels, zaagsnede);
     let inkoop_totaal = rond2(per_stuk.iter().map(|l| l.kosten).sum::<f64>() + zaag_resultaten.iter().map(|z| z.kosten).sum::<f64>());
-    let marge_totaal = rond2(per_stuk.iter().map(|l| l.marge).sum());
+    let hout_inkoop = rond2(zaag_resultaten.iter().map(|z| z.kosten).sum::<f64>());
+    let marge_hout = rond2(hout_inkoop * catalogus.instellingen.marge_hout_pct / 100.0);
+    let marge_totaal = rond2(per_stuk.iter().map(|l| l.marge).sum::<f64>() + marge_hout);
     let uren_totaal = modules.iter().map(|m| m.uren).sum();
     let arbeid = rond2(uur_tarief * uren_totaal);
     let verkoopprijs = rond2(inkoop_totaal + marge_totaal + arbeid);
@@ -561,6 +565,7 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
         uur_tarief,
         inkoop_totaal,
         marge_totaal,
+        marge_hout,
         uren_totaal,
         arbeid,
         verkoopprijs,

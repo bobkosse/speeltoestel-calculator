@@ -206,6 +206,7 @@ mod tests {
                 zaagsnede_mm: 3.0,
                 munt: "EUR".to_string(),
                 uur_tarief: 45.0,
+                marge_hout_pct: 0.0,
             },
             per_stuk: vec![PerStuk {
                 id: "s1".into(),

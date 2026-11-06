@@ -71,6 +71,13 @@ fn text_field(ui: &mut egui::Ui, text: &mut String, width: f32) -> egui::Respons
     ui.add_sized(egui::vec2(width, 32.0), egui::TextEdit::singleline(text))
 }
 
+fn text_input(ui: &mut egui::Ui, text: &mut String, width: f32, hint: &str) -> egui::Response {
+    ui.add_sized(
+        egui::vec2(width, 32.0),
+        egui::TextEdit::singleline(text).hint_text(hint),
+    )
+}
+
 fn card(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::default()
         .fill(CARD_BG)
@@ -436,12 +443,10 @@ impl App {
             )
             .show(ctx, |ui| {
                 ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new("Speeltoestel\nCalculator")
-                        .strong()
-                        .size(20.0)
-                        .color(ACCENT),
-                );
+                let logo = egui::include_image!("../assets/logo.png");
+                let lw = 170.0_f32;
+                let lh = lw * 397.0 / 1200.0;
+                ui.add(egui::Image::new(logo).fit_to_exact_size(egui::vec2(lw, lh)));
                 ui.add_space(18.0);
                 for tab in [Tab::Projecten, Tab::Materialen, Tab::Project, Tab::Calculatie] {
                     let selected = self.tab == tab;
@@ -572,10 +577,7 @@ impl App {
         }
         ui.add_space(10.0);
         ui.horizontal(|ui| {
-            egui::TextEdit::singleline(&mut self.nieuwe_project_naam)
-                .desired_width(320.0)
-                .hint_text("Naam nieuw project")
-                .ui(ui);
+            text_input(ui, &mut self.nieuwe_project_naam, 320.0, "Naam nieuw project");
             if primary_button(ui, "+ Nieuw project").clicked() {
                 let naam = if self.nieuwe_project_naam.trim().is_empty() {
                     format!("Project {}", self.projecten.len() + 1)
@@ -630,19 +632,32 @@ impl App {
     fn mat_instellingen(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
             ui.heading("Instellingen");
-            ui.horizontal(|ui| {
-                ui.label("Zaagsnede (mm):");
-                egui::DragValue::new(&mut self.catalogus.instellingen.zaagsnede_mm)
-                    .speed(0.5)
-                    .range(0.0..=20.0)
-                    .ui(ui);
-                ui.label("Uurtarief (€/uur):");
-                egui::DragValue::new(&mut self.catalogus.instellingen.uur_tarief)
-                    .speed(1.0)
-                    .range(0.0..=500.0)
-                    .ui(ui);
-                ui.label("Munt:");
-                text_field(ui, &mut self.catalogus.instellingen.munt, 80.0);
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Zaagsnede (mm):");
+                    egui::DragValue::new(&mut self.catalogus.instellingen.zaagsnede_mm)
+                        .speed(0.5)
+                        .range(0.0..=20.0)
+                        .ui(ui);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Uurtarief (€/uur):");
+                    egui::DragValue::new(&mut self.catalogus.instellingen.uur_tarief)
+                        .speed(1.0)
+                        .range(0.0..=500.0)
+                        .ui(ui);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Marge houtinkoop (%):");
+                    egui::DragValue::new(&mut self.catalogus.instellingen.marge_hout_pct)
+                        .speed(1.0)
+                        .range(0.0..=200.0)
+                        .ui(ui);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Munt:");
+                    text_field(ui, &mut self.catalogus.instellingen.munt, 120.0);
+                });
             });
         });
     }
@@ -697,31 +712,13 @@ impl App {
                     }
                 }
                 // invoerregel: zelfde kolommen/breedtes als de tabelrijen
-                egui::TextEdit::singleline(&mut self.nieuw_per_stuk.0)
-                    .desired_width(200.0)
-                    .hint_text("Naam")
-                    .ui(ui);
+                text_input(ui, &mut self.nieuw_per_stuk.0, 200.0, "Naam");
                 ui.label("");
-                egui::TextEdit::singleline(&mut self.nieuw_per_stuk.1)
-                    .desired_width(90.0)
-                    .hint_text("Eenheid")
-                    .ui(ui);
-                egui::TextEdit::singleline(&mut self.nieuw_per_stuk.2)
-                    .desired_width(90.0)
-                    .hint_text("Aantal/eenh.")
-                    .ui(ui);
-                egui::TextEdit::singleline(&mut self.nieuw_per_stuk.3)
-                    .desired_width(100.0)
-                    .hint_text("Prijs/eenh.")
-                    .ui(ui);
-                egui::TextEdit::singleline(&mut self.nieuw_per_stuk.5)
-                    .desired_width(70.0)
-                    .hint_text("Marge %")
-                    .ui(ui);
-                egui::TextEdit::singleline(&mut self.nieuw_per_stuk.4)
-                    .desired_width(180.0)
-                    .hint_text("Extra info")
-                    .ui(ui);
+                text_input(ui, &mut self.nieuw_per_stuk.1, 90.0, "Eenheid");
+                text_input(ui, &mut self.nieuw_per_stuk.2, 90.0, "Aantal/eenh.");
+                text_input(ui, &mut self.nieuw_per_stuk.3, 100.0, "Prijs/eenh.");
+                text_input(ui, &mut self.nieuw_per_stuk.5, 70.0, "Marge %");
+                text_input(ui, &mut self.nieuw_per_stuk.4, 180.0, "Extra info");
                 if primary_button(ui, "Toevoegen").clicked() {
                     if !self.nieuw_per_stuk.0.trim().is_empty() {
                         let aantal_per_eenheid = Self::parse_getal(&self.nieuw_per_stuk.2);
@@ -858,14 +855,8 @@ impl App {
                             }
                         });
                         ui.horizontal(|ui| {
-                            egui::TextEdit::singleline(&mut self.nieuw_profiel_inkoop.0)
-                                .desired_width(130.0)
-                                .hint_text("Lengte (mm)")
-                                .ui(ui);
-                            egui::TextEdit::singleline(&mut self.nieuw_profiel_inkoop.1)
-                                .desired_width(120.0)
-                                .hint_text("Prijs")
-                                .ui(ui);
+                            text_input(ui, &mut self.nieuw_profiel_inkoop.0, 130.0, "Lengte (mm)");
+                            text_input(ui, &mut self.nieuw_profiel_inkoop.1, 120.0, "Prijs");
                             if primary_button(ui, "Inkooplengte toevoegen").clicked() {
                                 let lengte = Self::parse_getal(&self.nieuw_profiel_inkoop.0) as i64;
                                 let prijs = Self::parse_getal(&self.nieuw_profiel_inkoop.1);
@@ -1153,10 +1144,7 @@ impl App {
                 self.projecten[pos].groepen.retain(|g| g.id != gid);
             }
             ui.horizontal(|ui| {
-                egui::TextEdit::singleline(&mut nieuwe_groep_naam)
-                    .desired_width(240.0)
-                    .hint_text("Naam nieuwe groep")
-                    .ui(ui);
+                text_input(ui, &mut nieuwe_groep_naam, 240.0, "Naam nieuwe groep");
                 if primary_button(ui, "+ Nieuwe groep").clicked() {
                     let naam = if nieuwe_groep_naam.trim().is_empty() {
                         format!("Groep {}", self.projecten[pos].groepen.len() + 1)

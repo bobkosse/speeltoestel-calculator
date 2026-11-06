@@ -62,6 +62,10 @@ fn datum_vandaag() -> String {
     format!("{:04}-{:02}-{:02}", year, month, rest + 1)
 }
 
+fn fmt_lengte(mm: i64) -> String {
+    format!("{:.1} m", mm as f64 / 1000.0).replace('.', ",")
+}
+
 fn fmt_bedrag_munt(munt: &str, x: f64) -> String {
     let symbool = if munt == "EUR" { "€" } else { munt };
     format!("{symbool} {:.2}", x)
@@ -1399,7 +1403,7 @@ impl App {
         b.y += 8.0;
         let mut summary_rows: Vec<Vec<String>> = Vec::new();
         for m in &res.modules {
-            summary_rows.push(vec![m.naam.clone(), m.aantal.to_string(), self.fmt_bedrag(m.inkoop), self.fmt_bedrag(m.marge), format!("{:.1} u", m.uren), format!("{} mm", m.lengte_totaal)]);
+            summary_rows.push(vec![m.naam.clone(), m.aantal.to_string(), self.fmt_bedrag(m.inkoop), self.fmt_bedrag(m.marge), format!("{:.1} u", m.uren), fmt_lengte(m.lengte_totaal)]);
         }
         if !summary_rows.is_empty() {
             b.tabel(&[(50.0, "Module"), (18.0, "Aantal"), (30.0, "Inkoop"), (26.0, "Marge"), (28.0, "Uren"), (28.0, "Lengte")], &summary_rows, None);
@@ -1407,9 +1411,9 @@ impl App {
         }
         let tot_rows = vec![
             vec!["Kostprijs (inkoop, excl. BTW)".to_string(), self.fmt_bedrag(res.inkoop_totaal)],
-            vec!["Marge op losse producten".to_string(), self.fmt_bedrag(res.marge_totaal)],
+            vec!["Marge (losse producten + hout)".to_string(), self.fmt_bedrag(res.marge_totaal)],
             vec![format!("Tijdsinvestering ({:.1} u à {} /u)", res.uren_totaal, self.fmt_bedrag(res.uur_tarief)), self.fmt_bedrag(res.arbeid)],
-            vec![format!("Totale projectlengte"), format!("{} mm", res.lengte_totaal)],
+            vec!["Totale projectlengte".to_string(), fmt_lengte(res.lengte_totaal)],
             vec!["Verkoopprijs".to_string(), self.fmt_bedrag(res.verkoopprijs)],
             vec!["Bruto winst".to_string(), self.fmt_bedrag(res.bruto_winst)],
         ];
@@ -1447,7 +1451,7 @@ impl App {
                 "per stuk".to_string()
             } else {
                 format!(
-                    "per {} {} à {} → {} verp.",
+                    "per {} {} à {} = {} verp.",
                     l.aantal_per_eenheid,
                     l.eenheid,
                     self.fmt_bedrag(l.prijs_per_eenheid),
@@ -1695,7 +1699,7 @@ impl App {
                             ui.label(self.fmt_bedrag(m.inkoop));
                             ui.label(self.fmt_bedrag(m.marge));
                             ui.label(format!("{:.1} u", m.uren));
-                            ui.label(format!("{} mm", m.lengte_totaal));
+                            ui.label(fmt_lengte(m.lengte_totaal));
                             ui.end_row();
                         }
                     });
@@ -1705,14 +1709,14 @@ impl App {
                     ui.label("Kostprijs (inkoop materiaal, excl. BTW):");
                     ui.label(egui::RichText::new(self.fmt_bedrag(res.inkoop_totaal)).strong());
                     ui.end_row();
-                    ui.label("Marge op losse inkoopproducten:");
+                    ui.label("Marge (losse producten + hout):");
                     ui.label(self.fmt_bedrag(res.marge_totaal));
                     ui.end_row();
                     ui.label(format!("Tijdsinvestering (bij € {:.2}/uur):", res.uur_tarief));
-                    ui.label(format!("{:.1} u → {}", res.uren_totaal, self.fmt_bedrag(res.arbeid)));
+                    ui.label(format!("{:.1} u = {}", res.uren_totaal, self.fmt_bedrag(res.arbeid)));
                     ui.end_row();
                     ui.label("Totale projectlengte:");
-                    ui.label(egui::RichText::new(format!("{} mm", res.lengte_totaal)).strong());
+                    ui.label(egui::RichText::new(fmt_lengte(res.lengte_totaal)).strong());
                     ui.end_row();
                     ui.label(egui::RichText::new("Verkoopprijs:").strong());
                     ui.label(egui::RichText::new(self.fmt_bedrag(res.verkoopprijs)).strong());
@@ -1762,7 +1766,7 @@ impl App {
                             ui.label("per stuk".to_string());
                         } else {
                             ui.label(format!(
-                                "per {} {} à {} → {} verp.",
+                                "per {} {} à {} = {} verp.",
                                 l.aantal_per_eenheid,
                                 l.eenheid,
                                 self.fmt_bedrag(l.prijs_per_eenheid),

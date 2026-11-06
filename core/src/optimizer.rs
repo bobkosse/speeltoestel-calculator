@@ -387,7 +387,8 @@ pub fn optimaliseer_profiel(
 }
 
 pub fn rond2(x: f64) -> f64 {
-    (x * 100.0).round() / 100.0
+    let r = (x * 100.0).round() / 100.0;
+    if r == 0.0 { 0.0 } else { r } // normaliseer -0.0
 }
 
 #[derive(Debug, Clone)]
@@ -533,7 +534,8 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
         }
         let (ps, zr) = bereken_regels(catalogus, &m.regels, zaagsnede);
         let inkoop_m = rond2(ps.iter().map(|l| l.kosten).sum::<f64>() + zr.iter().map(|z| z.kosten).sum::<f64>());
-        let marge_m = rond2(ps.iter().map(|l| l.marge).sum());
+        let hout_m = rond2(zr.iter().map(|z| z.kosten).sum::<f64>());
+        let marge_m = rond2(ps.iter().map(|l| l.marge).sum::<f64>() + hout_m * catalogus.instellingen.marge_hout_pct / 100.0);
         let uren_m = pm.aantal as f64 * (m.uren_bouwen + m.uren_plaatsen);
         let lengte_m = pm.aantal as i64 * m.lengte_mm;
         modules.push(ModuleKosten {

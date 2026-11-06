@@ -670,7 +670,7 @@ impl App {
                     ui.label("Marge houtinkoop (%):");
                     egui::DragValue::new(&mut self.catalogus.instellingen.marge_hout_pct)
                         .speed(1.0)
-                        .range(0.0..=200.0)
+                        .range(0.0..=1000.0)
                         .ui(ui);
                     ui.end_row();
                     ui.label("Munt:");
@@ -710,7 +710,7 @@ impl App {
                         .ui(ui);
                     egui::DragValue::new(&mut m.marge_pct)
                         .speed(1.0)
-                        .range(0.0..=200.0)
+                        .range(0.0..=1000.0)
                         .ui(ui);
                     text_field(ui, &mut m.info, 180.0);
                     if danger_button(ui, "Verwijder").clicked() {

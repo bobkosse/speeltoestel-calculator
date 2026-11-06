@@ -397,6 +397,8 @@ pub struct ModuleKosten {
     pub inkoop: f64,
     pub marge: f64,
     pub uren: f64,
+    /// aantal × modulelengte (mm)
+    pub lengte_totaal: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -417,6 +419,8 @@ pub struct Berekening {
     pub verkoopprijs: f64,
     /// Bruto winst = verkoopprijs − inkoop.
     pub bruto_winst: f64,
+    /// Totale lengte van het project (alle modules, in mm).
+    pub lengte_totaal: i64,
     /// alias voor inkoop_totaal (backward compat)
     pub totaal_excl: f64,
 }
@@ -529,12 +533,14 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
         let inkoop_m = rond2(ps.iter().map(|l| l.kosten).sum::<f64>() + zr.iter().map(|z| z.kosten).sum::<f64>());
         let marge_m = rond2(ps.iter().map(|l| l.marge).sum());
         let uren_m = pm.aantal as f64 * (m.uren_bouwen + m.uren_plaatsen);
+        let lengte_m = pm.aantal as i64 * m.lengte_mm;
         modules.push(ModuleKosten {
             naam: m.naam.clone(),
             aantal: pm.aantal,
             inkoop: inkoop_m,
             marge: marge_m,
             uren: uren_m,
+            lengte_totaal: lengte_m,
         });
     }
 
@@ -545,6 +551,7 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
     let arbeid = rond2(uur_tarief * uren_totaal);
     let verkoopprijs = rond2(inkoop_totaal + marge_totaal + arbeid);
     let bruto_winst = rond2(verkoopprijs - inkoop_totaal);
+    let lengte_totaal = modules.iter().map(|m| m.lengte_totaal).sum();
 
     Berekening {
         zaagsnede_mm: zaagsnede,
@@ -558,6 +565,7 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
         arbeid,
         verkoopprijs,
         bruto_winst,
+        lengte_totaal,
         totaal_excl: inkoop_totaal,
     }
 }

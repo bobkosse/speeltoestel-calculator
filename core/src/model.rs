@@ -29,6 +29,9 @@ pub struct Module {
     pub uren_bouwen: f64,
     #[serde(default)]
     pub uren_plaatsen: f64,
+    /// Totale lengte van de module in mm (voor projectlengte in de calculatie).
+    #[serde(default)]
+    pub lengte_mm: i64,
 }
 
 /// Eén project binnen het projectenbestand.
@@ -173,6 +176,7 @@ impl Default for Catalogus {
                 ],
                 uren_bouwen: 3.0,
                 uren_plaatsen: 1.0,
+                lengte_mm: 2000,
             }],
         }
     }

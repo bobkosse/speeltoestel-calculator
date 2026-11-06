@@ -774,6 +774,9 @@ impl App {
                             ui.label("Uren plaatsen:");
                             egui::DragValue::new(&mut self.catalogus.modules[mi].uren_plaatsen)
                                 .speed(0.5).range(0.0..=1000.0).ui(ui);
+                            ui.label("Lengte module (mm):");
+                            egui::DragValue::new(&mut self.catalogus.modules[mi].lengte_mm)
+                                .speed(10.0).range(0..=100000).ui(ui);
                             if danger_button(ui, "Module verwijderen").clicked() {
                                 verwijder = Some(mid.clone());
                             }
@@ -798,6 +801,7 @@ impl App {
                     regels: Vec::new(),
                     uren_bouwen: 0.0,
                     uren_plaatsen: 0.0,
+                    lengte_mm: 0,
                 });
             }
         });
@@ -1393,16 +1397,17 @@ impl App {
         b.y += 8.0;
         let mut summary_rows: Vec<Vec<String>> = Vec::new();
         for m in &res.modules {
-            summary_rows.push(vec![m.naam.clone(), m.aantal.to_string(), self.fmt_bedrag(m.inkoop), self.fmt_bedrag(m.marge), format!("{:.1} u", m.uren)]);
+            summary_rows.push(vec![m.naam.clone(), m.aantal.to_string(), self.fmt_bedrag(m.inkoop), self.fmt_bedrag(m.marge), format!("{:.1} u", m.uren), format!("{} mm", m.lengte_totaal)]);
         }
         if !summary_rows.is_empty() {
-            b.tabel(&[(60.0, "Module"), (20.0, "Aantal"), (35.0, "Inkoop"), (30.0, "Marge"), (35.0, "Uren")], &summary_rows, None);
+            b.tabel(&[(50.0, "Module"), (18.0, "Aantal"), (30.0, "Inkoop"), (26.0, "Marge"), (28.0, "Uren"), (28.0, "Lengte")], &summary_rows, None);
             b.y += 4.0;
         }
         let tot_rows = vec![
             vec!["Kostprijs (inkoop, excl. BTW)".to_string(), self.fmt_bedrag(res.inkoop_totaal)],
             vec!["Marge op losse producten".to_string(), self.fmt_bedrag(res.marge_totaal)],
             vec![format!("Tijdsinvestering ({:.1} u à {} /u)", res.uren_totaal, self.fmt_bedrag(res.uur_tarief)), self.fmt_bedrag(res.arbeid)],
+            vec![format!("Totale projectlengte"), format!("{} mm", res.lengte_totaal)],
             vec!["Verkoopprijs".to_string(), self.fmt_bedrag(res.verkoopprijs)],
             vec!["Bruto winst".to_string(), self.fmt_bedrag(res.bruto_winst)],
         ];
@@ -1680,6 +1685,7 @@ impl App {
                         ui.label(egui::RichText::new("Inkoop").strong());
                         ui.label(egui::RichText::new("Marge").strong());
                         ui.label(egui::RichText::new("Uren").strong());
+                        ui.label(egui::RichText::new("Lengte").strong());
                         ui.end_row();
                         for m in &res.modules {
                             ui.label(&m.naam);
@@ -1687,6 +1693,7 @@ impl App {
                             ui.label(self.fmt_bedrag(m.inkoop));
                             ui.label(self.fmt_bedrag(m.marge));
                             ui.label(format!("{:.1} u", m.uren));
+                            ui.label(format!("{} mm", m.lengte_totaal));
                             ui.end_row();
                         }
                     });
@@ -1701,6 +1708,9 @@ impl App {
                     ui.end_row();
                     ui.label(format!("Tijdsinvestering (bij € {:.2}/uur):", res.uur_tarief));
                     ui.label(format!("{:.1} u → {}", res.uren_totaal, self.fmt_bedrag(res.arbeid)));
+                    ui.end_row();
+                    ui.label("Totale projectlengte:");
+                    ui.label(egui::RichText::new(format!("{} mm", res.lengte_totaal)).strong());
                     ui.end_row();
                     ui.label(egui::RichText::new("Verkoopprijs:").strong());
                     ui.label(egui::RichText::new(self.fmt_bedrag(res.verkoopprijs)).strong());

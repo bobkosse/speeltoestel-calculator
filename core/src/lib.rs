@@ -117,6 +117,7 @@ mod tests {
             ],
             uren_bouwen: 3.0,
             uren_plaatsen: 1.0,
+            lengte_mm: 2500,
         }];
         let entry = ProjectEntry {
             id: "pr".into(),
@@ -138,6 +139,8 @@ mod tests {
         assert_eq!(res.bruto_winst, 363.0);
         assert_eq!(res.modules.len(), 1);
         assert_eq!(res.modules[0].uren, 8.0);
+        assert_eq!(res.modules[0].lengte_totaal, 5000);
+        assert_eq!(res.lengte_totaal, 5000);
     }
 
     #[test]

@@ -771,10 +771,13 @@ impl App {
             ui.label("Stel hier je modules samen uit hout (uit Hout inkoop) en losse producten. Per module geef je op hoeveel uur bouwen en plaatsen het kost. Projecten stel je samen uit deze modules.");
             let mut verwijder: Option<String> = None;
             let len = self.catalogus.modules.len();
+            let prijzen: Vec<f64> = (0..len)
+                .map(|i| speeltoestel_core::optimizer::module_verkoopprijs(&self.catalogus, &self.catalogus.modules[i]))
+                .collect();
             for mi in 0..len {
                 let mid = self.catalogus.modules[mi].id.clone();
                 let mut naam = self.catalogus.modules[mi].naam.clone();
-                egui::CollapsingHeader::new(format!("Module: {naam}"))
+                egui::CollapsingHeader::new(format!("Module: {naam} ({})", self.fmt_bedrag(prijzen[mi])))
                     .id_salt(format!("module_{mid}"))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {

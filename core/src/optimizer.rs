@@ -514,6 +514,17 @@ fn bereken_regels(catalogus: &Catalogus, regels: &[ProjectLijn], zaagsnede: i64)
     (per_stuk, zaag_resultaten)
 }
 
+/// Verkoopprijs van één halffabrikaat (module): inkoop + marges + arbeid.
+pub fn module_verkoopprijs(catalogus: &Catalogus, m: &crate::model::Module) -> f64 {
+    let zaagsnede = catalogus.instellingen.zaagsnede_mm.round() as i64;
+    let (ps, zr) = bereken_regels(catalogus, &m.regels, zaagsnede);
+    let inkoop = ps.iter().map(|l| l.kosten).sum::<f64>() + zr.iter().map(|z| z.kosten).sum::<f64>();
+    let hout = zr.iter().map(|z| z.kosten).sum::<f64>();
+    let marge = ps.iter().map(|l| l.marge).sum::<f64>() + hout * catalogus.instellingen.marge_hout_pct / 100.0;
+    let uren = m.uren_bouwen + m.uren_plaatsen;
+    rond2(inkoop + marge + catalogus.instellingen.uur_tarief * uren)
+}
+
 pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEntry) -> Berekening {
     let zaagsnede = catalogus.instellingen.zaagsnede_mm.round() as i64;
     let uur_tarief = catalogus.instellingen.uur_tarief;

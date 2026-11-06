@@ -12,17 +12,20 @@ De navigatie zit in de **linker zijbalk** (Projecten · Materialen · Project ·
 - **Projecten** — overzicht van alle projecten in één bestand (`projecten.json`): per project
   zie je het aantal onderdelen en het berekende totaal excl. BTW. Hier voeg je projecten toe,
   hernoem je ze, open je ze (om te bewerken in het tabblad Project) of verwijder je ze.
-- **Materialen** — de gedeelde materialenbibliotheek: producten per stuk (schroeven, bouten:
-  prijs/stuk + extra info) en half-fabricaten (profielen met houtsoort, dikte, breedte en één
-  of meer inkooplengtes met prijs). Instellingen: zaagsnede in mm (standaard 3). Alle prijzen zijn exclusief BTW.
+- **Materialen** — de gedeelde bibliotheek, met sub-tabs:
+  - *Producten per stuk*: schroeven, bouten, etc. met inkoopverpakking (eenheid/aantal/prijs → auto stukprijs), **marge %** per product.
+  - *Hout inkoop*: profielen met houtsoort, dikte, breedte en inkooplengtes met prijs.
+  - *Halffabrikaten*: je modules, samengesteld uit hout + losse producten, met **uren bouwen** en **uren plaatsen** per module.
+  - *Instellingen*: zaagsnede (mm), uurtarief (€/uur), munt.
   Wordt opgeslagen als `materialen.json` — één bestand voor alle projecten.
-- **Project** — de benodigde onderdelen van het geopende project: per stuk (materiaal + aantal)
-  of zaagdeel (profiel + lengte in mm + breedte in mm + aantal).
+- **Project** — stel het project samen uit **halffabrikaten** (module + aantal); Daarnaast kun je per groep losse onderdelen invoeren (per stuk / zaagdeel met lengte en breedte).
 - **Calculatie** — automatisch de goedkoopste inkoop (gemengde lengtes mogelijk), mét zaagsnede:
   een gezaagd deel kost lengte + zaagsnede (een stuk van 1000 mm uit een 2000 mm plank laat 997 mm
   rest; een deel met exact de planklengte kost geen zaagsnede). Een plank kan ook over de lengte
   geript worden voor smallere breedtes. Toont een Bill of Materials (aanschaf + prijzen), een
   zaagplan per plank en is direct af te drukken als PDF (met printerkeuze) of op te slaan als PDF.
+  Het projectoverzicht toont per module inkoop/marge/uren en de totalen: **kostprijs (inkoop), marge,
+  tijdsinvestering, arbeid (uurtarief × uren), verkoopprijs (inkoop + marge + arbeid) en bruto winst**.
 - **Fool-proof opslaan** — bij de eerste start kies je een **werkmap**. Daarin staan
   `materialen.json` en `projecten.json`. De werkmap wordt onthouden (per gebruiker, in de
   app-instellingen) en bij elke start automatisch geladen. **Elke wijziging wordt direct

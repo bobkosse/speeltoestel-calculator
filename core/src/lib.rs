@@ -95,10 +95,49 @@ mod tests {
             ProjectLijn::Zaagdeel { id: "a".into(), profiel_id: Some("p1".into()), lengte_mm: 500, breedte_mm: None, aantal: 1 },
             ProjectLijn::Zaagdeel { id: "b".into(), profiel_id: Some("p2".into()), lengte_mm: 500, breedte_mm: None, aantal: 1 },
         ];
-        let res = bereken_project(&catalogus, &project);
+        let entry = ProjectEntry { id: "t".into(), naam: "t".into(), regels: project, groepen: Vec::new(), modules: Vec::new(), calc_hash: None, calc_totaal: None };
+        let res = bereken_project(&catalogus, &entry);
         // p2 (25 mm) moet vóór p1 (45 mm)
         assert_eq!(res.zaag_resultaten[0].profiel.dikte_mm, 25);
         assert_eq!(res.zaag_resultaten[1].profiel.dikte_mm, 45);
+    }
+
+    #[test]
+    fn module_calculatie_verkoopprijs_en_winst() {
+        use crate::model::{Module, ProjectModule};
+        let mut catalogus = test_catalogus();
+        catalogus.instellingen.uur_tarief = 45.0;
+        catalogus.per_stuk[0].marge_pct = 30.0;
+        catalogus.modules = vec![Module {
+            id: "m1".into(),
+            naam: "Toren".into(),
+            regels: vec![
+                ProjectLijn::Zaagdeel { id: "a".into(), profiel_id: Some("p1".into()), lengte_mm: 1000, breedte_mm: None, aantal: 2 },
+                ProjectLijn::PerStuk { id: "b".into(), materiaal_id: Some("s1".into()), aantal: 10 },
+            ],
+            uren_bouwen: 3.0,
+            uren_plaatsen: 1.0,
+        }];
+        let entry = ProjectEntry {
+            id: "pr".into(),
+            naam: "Knikkerbaan".into(),
+            regels: Vec::new(),
+            groepen: Vec::new(),
+            modules: vec![ProjectModule { module_id: Some("m1".into()), aantal: 2 }],
+            calc_hash: None,
+            calc_totaal: None,
+        };
+        let res = bereken_project(&catalogus, &entry);
+        // per module: hout 2×1000 uit 2000@40 = 2 planken = 80; schroeven 10×0,50 = 5 → inkoop 85
+        // 2 modules → inkoop 170; marge = 2 × (5 × 30%) = 3; uren = 2 × 4 = 8; arbeid = 45×8 = 360
+        assert_eq!(res.inkoop_totaal, 170.0);
+        assert_eq!(res.marge_totaal, 3.0);
+        assert_eq!(res.uren_totaal, 8.0);
+        assert_eq!(res.arbeid, 360.0);
+        assert_eq!(res.verkoopprijs, 533.0);
+        assert_eq!(res.bruto_winst, 363.0);
+        assert_eq!(res.modules.len(), 1);
+        assert_eq!(res.modules[0].uren, 8.0);
     }
 
     #[test]
@@ -163,6 +202,7 @@ mod tests {
             instellingen: Instellingen {
                 zaagsnede_mm: 3.0,
                 munt: "EUR".to_string(),
+                uur_tarief: 45.0,
             },
             per_stuk: vec![PerStuk {
                 id: "s1".into(),
@@ -172,6 +212,7 @@ mod tests {
                 eenheid: String::new(),
                 aantal_per_eenheid: 0.0,
                 prijs_per_eenheid: 0.0,
+                marge_pct: 0.0,
             }],
             profielen: vec![Profiel {
                 id: "p1".into(),
@@ -183,6 +224,7 @@ mod tests {
                     prijs: 40.0,
                 }],
             }],
+            modules: Vec::new(),
         }
     }
 
@@ -203,7 +245,8 @@ mod tests {
                 aantal: 2,
             },
         ];
-        let res = bereken_project(&catalogus, &project);
+        let entry = ProjectEntry { id: "t".into(), naam: "t".into(), regels: project, groepen: Vec::new(), modules: Vec::new(), calc_hash: None, calc_totaal: None };
+        let res = bereken_project(&catalogus, &entry);
         assert_eq!(res.zaag_resultaten[0].resultaat.as_ref().unwrap().aantal, 2);
         assert_eq!(res.zaag_resultaten[0].kosten, 80.0);
         assert_eq!(res.totaal_excl, 85.0);
@@ -221,13 +264,15 @@ mod tests {
             eenheid: "doos".into(),
             aantal_per_eenheid: 100.0,
             prijs_per_eenheid: 12.0,
+            marge_pct: 0.0,
         }];
         let project = vec![ProjectLijn::PerStuk {
             id: "l1".into(),
             materiaal_id: Some("s1".into()),
             aantal: 24,
         }];
-        let res = bereken_project(&catalogus, &project);
+        let entry = ProjectEntry { id: "t".into(), naam: "t".into(), regels: project, groepen: Vec::new(), modules: Vec::new(), calc_hash: None, calc_totaal: None };
+        let res = bereken_project(&catalogus, &entry);
         let l = &res.per_stuk[0];
         assert!((l.prijs_per_stuk - 0.12).abs() < 1e-9);
         assert_eq!(l.aantal, 24);
@@ -257,7 +302,8 @@ mod tests {
             breedte_mm: None,
             aantal: 1,
         }];
-        let res = bereken_project(&catalogus, &project);
+        let entry = ProjectEntry { id: "t".into(), naam: "t".into(), regels: project, groepen: Vec::new(), modules: Vec::new(), calc_hash: None, calc_totaal: None };
+        let res = bereken_project(&catalogus, &entry);
         assert!(res.zaag_resultaten[0].resultaat.is_none());
         assert_eq!(res.totaal_excl, 0.0);
     }
@@ -278,6 +324,7 @@ mod tests {
                 calc_hash: None,
                 calc_totaal: None,
                 groepen: Vec::new(),
+                modules: Vec::new(),
                 regels: vec![
                     ProjectLijn::Zaagdeel {
                         id: "l1".into(),
@@ -298,7 +345,7 @@ mod tests {
         let pterug: ProjectenData = serde_json::from_str(&pjson).unwrap();
         assert_eq!(pterug.projecten.len(), 1);
         assert_eq!(pterug.projecten[0].regels.len(), 2);
-        let res = bereken_project(&terug, &pterug.projecten[0].regels);
+        let res = bereken_project(&terug, &pterug.projecten[0]);
         assert!(res.totaal_excl > 0.0);
     }
 
@@ -320,7 +367,8 @@ mod tests {
             serde_json::from_value(value["project"].clone()).unwrap();
         assert_eq!(catalogus.profielen.len(), 1);
         assert_eq!(regels.len(), 1);
-        let res = bereken_project(&catalogus, &regels);
+        let entry = ProjectEntry { id: "t".into(), naam: "t".into(), regels, groepen: Vec::new(), modules: Vec::new(), calc_hash: None, calc_totaal: None };
+        let res = bereken_project(&catalogus, &entry);
         assert_eq!(res.zaag_resultaten[0].kosten, 80.0);
     }
 }

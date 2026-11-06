@@ -96,7 +96,8 @@ fn nieuw_id() -> String {
 #[derive(PartialEq, Clone, Copy)]
 enum MatTab {
     PerStuk,
-    Halffabricaten,
+    HoutInkoop,
+    Modules,
     Instellingen,
 }
 
@@ -138,7 +139,7 @@ struct App {
     tab: Tab,
     mat_tab: MatTab,
     status: String,
-    nieuw_per_stuk: (String, String, String, String, String),
+    nieuw_per_stuk: (String, String, String, String, String, String),
     nieuw_profiel_inkoop: (String, String),
     nieuwe_project_naam: String,
 }
@@ -152,6 +153,7 @@ impl Default for App {
                 naam: "Voorbeeldproject".to_string(),
                 calc_hash: None,
                 calc_totaal: None,
+                modules: vec![speeltoestel_core::model::ProjectModule { module_id: Some("m1".to_string()), aantal: 1 }],
                 regels: Vec::new(),
                 groepen: vec![speeltoestel_core::model::ProjectGroep {
                     id: "g1".to_string(),
@@ -188,7 +190,7 @@ impl Default for App {
             tab: Tab::Projecten,
             mat_tab: MatTab::PerStuk,
             status: "Onopgeslagen wijzigingen".to_string(),
-            nieuw_per_stuk: (String::new(), String::new(), String::new(), String::new(), String::new()),
+            nieuw_per_stuk: (String::new(), String::new(), String::new(), String::new(), String::new(), String::new()),
             nieuw_profiel_inkoop: (String::new(), String::new()),
             nieuwe_project_naam: String::new(),
         }
@@ -284,6 +286,7 @@ impl App {
                                 naam: "Geïmporteerd project".to_string(),
                                 regels,
                                 groepen: Vec::new(),
+                                modules: Vec::new(),
                                 calc_hash: None,
                                 calc_totaal: None,
                             }];
@@ -400,8 +403,9 @@ impl App {
             return;
         };
         let id = project.id.clone();
-        let regels = project.alle_regels();
-        let res = bereken_project(&self.catalogus, &regels);
+        let entry = project.clone();
+        let cat = self.catalogus.clone();
+        let res = bereken_project(&cat, &entry);
         let hash = self.state_hash();
         self.calc_cache = Some((id.clone(), res.clone()));
         self.calc_dirty = false;
@@ -517,7 +521,7 @@ impl App {
         let kosten: Vec<f64> = self
             .projecten
             .iter()
-            .map(|p| bereken_project(&self.catalogus, &p.regels).totaal_excl)
+            .map(|p| bereken_project(&self.catalogus, p).inkoop_totaal)
             .collect();
 
         let mut actie: Option<(&'static str, String)> = None;
@@ -586,6 +590,7 @@ impl App {
                     naam,
                     regels: Vec::new(),
                     groepen: Vec::new(),
+                    modules: Vec::new(),
                 });
                 self.huidig_project = Some(id);
                 self.nieuwe_project_naam.clear();
@@ -600,7 +605,8 @@ impl App {
         ui.horizontal(|ui| {
             for (t, label) in [
                 (MatTab::PerStuk, "Producten per stuk"),
-                (MatTab::Halffabricaten, "Half-fabricaten"),
+                (MatTab::HoutInkoop, "Hout inkoop"),
+                (MatTab::Modules, "Halffabrikaten"),
                 (MatTab::Instellingen, "Instellingen"),
             ] {
                 let selected = self.mat_tab == t;
@@ -615,7 +621,8 @@ impl App {
         ui.separator();
         egui::ScrollArea::vertical().show(ui, |ui| match self.mat_tab {
             MatTab::PerStuk => self.mat_per_stuk(ui),
-            MatTab::Halffabricaten => self.mat_halffabricaten(ui),
+            MatTab::HoutInkoop => self.mat_hout(ui),
+            MatTab::Modules => self.mat_modules(ui),
             MatTab::Instellingen => self.mat_instellingen(ui),
         });
     }
@@ -628,6 +635,11 @@ impl App {
                 egui::DragValue::new(&mut self.catalogus.instellingen.zaagsnede_mm)
                     .speed(0.5)
                     .range(0.0..=20.0)
+                    .ui(ui);
+                ui.label("Uurtarief (€/uur):");
+                egui::DragValue::new(&mut self.catalogus.instellingen.uur_tarief)
+                    .speed(1.0)
+                    .range(0.0..=500.0)
                     .ui(ui);
                 ui.label("Munt:");
                 text_field(ui, &mut self.catalogus.instellingen.munt, 80.0);
@@ -645,6 +657,7 @@ impl App {
                 ui.label(egui::RichText::new("Eenheid").strong());
                 ui.label(egui::RichText::new("Aantal/eenh.").strong());
                 ui.label(egui::RichText::new("Prijs/eenh.").strong());
+                ui.label(egui::RichText::new("Marge %").strong());
                 ui.label(egui::RichText::new("Extra info").strong());
                 ui.label("");
                 ui.end_row();
@@ -661,6 +674,10 @@ impl App {
                     egui::DragValue::new(&mut m.prijs_per_eenheid)
                         .speed(0.5)
                         .range(0.0..=1000000.0)
+                        .ui(ui);
+                    egui::DragValue::new(&mut m.marge_pct)
+                        .speed(1.0)
+                        .range(0.0..=200.0)
                         .ui(ui);
                     text_field(ui, &mut m.info, 180.0);
                     if danger_button(ui, "Verwijder").clicked() {
@@ -697,6 +714,10 @@ impl App {
                     .desired_width(100.0)
                     .hint_text("Prijs/eenh.")
                     .ui(ui);
+                egui::TextEdit::singleline(&mut self.nieuw_per_stuk.5)
+                    .desired_width(70.0)
+                    .hint_text("Marge %")
+                    .ui(ui);
                 egui::TextEdit::singleline(&mut self.nieuw_per_stuk.4)
                     .desired_width(180.0)
                     .hint_text("Extra info")
@@ -705,6 +726,7 @@ impl App {
                     if !self.nieuw_per_stuk.0.trim().is_empty() {
                         let aantal_per_eenheid = Self::parse_getal(&self.nieuw_per_stuk.2);
                         let prijs_per_eenheid = Self::parse_getal(&self.nieuw_per_stuk.3);
+                        let marge_pct = Self::parse_getal(&self.nieuw_per_stuk.5);
                         let stukprijs = if aantal_per_eenheid > 0.0 {
                             prijs_per_eenheid / aantal_per_eenheid
                         } else {
@@ -718,8 +740,9 @@ impl App {
                             eenheid: self.nieuw_per_stuk.1.trim().to_string(),
                             aantal_per_eenheid,
                             prijs_per_eenheid,
+                            marge_pct,
                         });
-                        self.nieuw_per_stuk = (String::new(), String::new(), String::new(), String::new(), String::new());
+                        self.nieuw_per_stuk = (String::new(), String::new(), String::new(), String::new(), String::new(), String::new());
                     }
                 }
                 ui.end_row();
@@ -727,9 +750,61 @@ impl App {
         });
     }
 
-    fn mat_halffabricaten(&mut self, ui: &mut egui::Ui) {
+    fn mat_modules(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
-            ui.heading("Half-fabricaten (zaagdelen)");
+            ui.heading("Halffabrikaten (modules)");
+            ui.label("Stel hier je modules samen uit hout (uit Hout inkoop) en losse producten. Per module geef je op hoeveel uur bouwen en plaatsen het kost. Projecten stel je samen uit deze modules.");
+            let mut verwijder: Option<String> = None;
+            let len = self.catalogus.modules.len();
+            for mi in 0..len {
+                let mid = self.catalogus.modules[mi].id.clone();
+                let mut naam = self.catalogus.modules[mi].naam.clone();
+                egui::CollapsingHeader::new(format!("Module: {naam}"))
+                    .id_salt(format!("module_{mid}"))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Naam:");
+                            egui::TextEdit::singleline(&mut naam).desired_width(240.0).ui(ui);
+                            if naam != self.catalogus.modules[mi].naam {
+                                self.catalogus.modules[mi].naam = naam;
+                            }
+                            ui.label("Uren bouwen:");
+                            egui::DragValue::new(&mut self.catalogus.modules[mi].uren_bouwen)
+                                .speed(0.5).range(0.0..=1000.0).ui(ui);
+                            ui.label("Uren plaatsen:");
+                            egui::DragValue::new(&mut self.catalogus.modules[mi].uren_plaatsen)
+                                .speed(0.5).range(0.0..=1000.0).ui(ui);
+                            if danger_button(ui, "Module verwijderen").clicked() {
+                                verwijder = Some(mid.clone());
+                            }
+                        });
+                        ui.add_space(4.0);
+                        let cat = self.catalogus.clone();
+                        let regels = &mut self.catalogus.modules[mi].regels;
+                        Self::regels_editor(&cat, ui, regels);
+                    });
+                ui.add_space(6.0);
+            }
+            if let Some(id) = verwijder {
+                self.catalogus.modules.retain(|m| m.id != id);
+                for p in self.projecten.iter_mut() {
+                    p.modules.retain(|pm| pm.module_id.as_deref() != Some(id.as_str()));
+                }
+            }
+            if primary_button(ui, "+ Module toevoegen").clicked() {
+                self.catalogus.modules.push(speeltoestel_core::model::Module {
+                    id: nieuw_id(),
+                    naam: format!("Module {}", self.catalogus.modules.len() + 1),
+                    regels: Vec::new(),
+                    uren_bouwen: 0.0,
+                    uren_plaatsen: 0.0,
+                });
+            }
+        });
+    }
+    fn mat_hout(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
+            ui.heading("Hout inkoop (profielen)");
             ui.label("Planken, palen, etc. Per profiel meerdere inkooplengtes mogelijk; de app kiest de goedkoopste samenstelling.");
             let mut verwijder_profiel: Option<String> = None;
             let mut verwijder_inkoop: Option<(String, usize)> = None;
@@ -987,7 +1062,57 @@ impl App {
         };
         let naam = self.projecten[pos].naam.clone();
         ui.heading(format!("Project: {naam}"));
-        ui.label("Onderdelen per groep. Groepen kun je in- en uitklappen.");
+        ui.label("Stel het project samen uit halffabrikaten (modules).");
+        ui.add_space(4.0);
+        card(ui, |ui| {
+            ui.heading("Samenstelling uit halffabrikaten");
+            egui::Grid::new("project_modules_grid").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
+                ui.label(egui::RichText::new("Module").strong());
+                ui.label(egui::RichText::new("Aantal").strong());
+                ui.label("");
+                ui.end_row();
+                let mut verwijder: Option<usize> = None;
+                let len = self.projecten[pos].modules.len();
+                for i in 0..len {
+                    let mut gekozen = self.projecten[pos].modules[i].module_id.clone().unwrap_or_default();
+                    egui::ComboBox::from_id_salt(format!("mod_{i}")).width(300.0)
+                        .selected_text(
+                            self.catalogus.modules.iter()
+                                .find(|m| Some(&m.id) == self.projecten[pos].modules[i].module_id.as_ref())
+                                .map(|m| m.naam.clone())
+                                .unwrap_or_else(|| "– kies –".to_string()),
+                        )
+                        .show_ui(ui, |ui| {
+                            for m in &self.catalogus.modules {
+                                ui.selectable_value(&mut gekozen, m.id.clone(), &m.naam);
+                            }
+                        });
+                    if gekozen != self.projecten[pos].modules[i].module_id.as_deref().unwrap_or("")
+                        || (self.projecten[pos].modules[i].module_id.is_none() && !gekozen.is_empty())
+                    {
+                        self.projecten[pos].modules[i].module_id = Some(gekozen);
+                    }
+                    egui::DragValue::new(&mut self.projecten[pos].modules[i].aantal)
+                        .speed(1.0).range(0..=10000).ui(ui);
+                    if danger_button(ui, "Verwijder").clicked() {
+                        verwijder = Some(i);
+                    }
+                    ui.end_row();
+                }
+                if let Some(i) = verwijder {
+                    self.projecten[pos].modules.remove(i);
+                }
+                if primary_button(ui, "+ Module toevoegen").clicked() {
+                    self.projecten[pos].modules.push(speeltoestel_core::model::ProjectModule {
+                        module_id: self.catalogus.modules.first().map(|m| m.id.clone()),
+                        aantal: 1,
+                    });
+                }
+                ui.end_row();
+            });
+        });
+        ui.add_space(4.0);
+        ui.label("Losse onderdelen per groep (direct, zonder module). Groepen kun je in- en uitklappen.");
         ui.add_space(4.0);
         egui::ScrollArea::vertical().show(ui, |ui| {
             let mut verwijder_groep: Option<String> = None;
@@ -1264,6 +1389,26 @@ impl App {
         );
         b.y += 9.0;
 
+        b.tekst("Projectoverzicht", MARGIN, 12.0, true, &zwart);
+        b.y += 8.0;
+        let mut summary_rows: Vec<Vec<String>> = Vec::new();
+        for m in &res.modules {
+            summary_rows.push(vec![m.naam.clone(), m.aantal.to_string(), self.fmt_bedrag(m.inkoop), self.fmt_bedrag(m.marge), format!("{:.1} u", m.uren)]);
+        }
+        if !summary_rows.is_empty() {
+            b.tabel(&[(60.0, "Module"), (20.0, "Aantal"), (35.0, "Inkoop"), (30.0, "Marge"), (35.0, "Uren")], &summary_rows, None);
+            b.y += 4.0;
+        }
+        let tot_rows = vec![
+            vec!["Kostprijs (inkoop, excl. BTW)".to_string(), self.fmt_bedrag(res.inkoop_totaal)],
+            vec!["Marge op losse producten".to_string(), self.fmt_bedrag(res.marge_totaal)],
+            vec![format!("Tijdsinvestering ({:.1} u à {} /u)", res.uren_totaal, self.fmt_bedrag(res.uur_tarief)), self.fmt_bedrag(res.arbeid)],
+            vec!["Verkoopprijs".to_string(), self.fmt_bedrag(res.verkoopprijs)],
+            vec!["Bruto winst".to_string(), self.fmt_bedrag(res.bruto_winst)],
+        ];
+        b.tabel(&[(140.0, "Post"), (40.0, "Bedrag")], &tot_rows, None);
+        b.y += 6.0;
+
         b.tekst("Aan te schaffen", MARGIN, 12.0, true, &zwart);
         b.y += 8.0;
         let bom_cols = [(48.0, "Artikel"), (55.0, "Specificatie"), (16.0, "Aantal"), (30.0, "Prijs/stuk"), (31.0, "Bedrag")];
@@ -1311,7 +1456,7 @@ impl App {
             ]);
         }
         let totaal_row = vec![
-            "Totaal (excl. BTW)".to_string(),
+            "Inkoop totaal (excl. BTW)".to_string(),
             String::new(),
             String::new(),
             String::new(),
@@ -1504,8 +1649,9 @@ impl App {
         let res = match &self.calc_cache {
             Some((id, r)) if id == &project_id && !self.calc_dirty => r.clone(),
             _ => {
-                let regels = project.alle_regels();
-                let r = bereken_project(&self.catalogus, &regels);
+                let entry = project.clone();
+                let cat = self.catalogus.clone();
+                let r = bereken_project(&cat, &entry);
                 self.calc_cache = Some((project_id.clone(), r.clone()));
                 self.calc_dirty = false;
                 r
@@ -1525,6 +1671,45 @@ impl App {
         ));
         ui.add_space(4.0);
         egui::ScrollArea::vertical().show(ui, |ui| {
+            card(ui, |ui| {
+                ui.heading("Projectoverzicht");
+                if !res.modules.is_empty() {
+                    egui::Grid::new("calc_modules").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
+                        ui.label(egui::RichText::new("Module").strong());
+                        ui.label(egui::RichText::new("Aantal").strong());
+                        ui.label(egui::RichText::new("Inkoop").strong());
+                        ui.label(egui::RichText::new("Marge").strong());
+                        ui.label(egui::RichText::new("Uren").strong());
+                        ui.end_row();
+                        for m in &res.modules {
+                            ui.label(&m.naam);
+                            ui.label(m.aantal.to_string());
+                            ui.label(self.fmt_bedrag(m.inkoop));
+                            ui.label(self.fmt_bedrag(m.marge));
+                            ui.label(format!("{:.1} u", m.uren));
+                            ui.end_row();
+                        }
+                    });
+                    ui.add_space(6.0);
+                }
+                egui::Grid::new("calc_totaal").spacing([14.0, 6.0]).show(ui, |ui| {
+                    ui.label("Kostprijs (inkoop materiaal, excl. BTW):");
+                    ui.label(egui::RichText::new(self.fmt_bedrag(res.inkoop_totaal)).strong());
+                    ui.end_row();
+                    ui.label("Marge op losse inkoopproducten:");
+                    ui.label(self.fmt_bedrag(res.marge_totaal));
+                    ui.end_row();
+                    ui.label(format!("Tijdsinvestering (bij € {:.2}/uur):", res.uur_tarief));
+                    ui.label(format!("{:.1} u → {}", res.uren_totaal, self.fmt_bedrag(res.arbeid)));
+                    ui.end_row();
+                    ui.label(egui::RichText::new("Verkoopprijs:").strong());
+                    ui.label(egui::RichText::new(self.fmt_bedrag(res.verkoopprijs)).strong());
+                    ui.end_row();
+                    ui.label(egui::RichText::new("Bruto winst:").strong());
+                    ui.label(egui::RichText::new(self.fmt_bedrag(res.bruto_winst)).strong().color(ACCENT));
+                    ui.end_row();
+                });
+            });
             card(ui, |ui| {
                 ui.heading("Bill of Materials — aan te schaffen");
                 egui::Grid::new("bom").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
@@ -1577,7 +1762,7 @@ impl App {
                         ui.label(self.fmt_bedrag(l.kosten));
                         ui.end_row();
                     }
-                    ui.label(egui::RichText::new("Totaal (excl. BTW)").strong());
+                    ui.label(egui::RichText::new("Inkoop totaal (excl. BTW)").strong());
                     ui.label("");
                     ui.label("");
                     ui.label("");
@@ -1725,7 +1910,7 @@ mod tests {
     #[test]
     fn maak_pdf_geeft_geldige_pdf() {
         let app = App::default();
-        let res = bereken_project(&app.catalogus, &app.projecten[0].regels);
+        let res = bereken_project(&app.catalogus, &app.projecten[0]);
         let bytes = app.maak_pdf("Testproject", &res).unwrap();
         assert!(bytes.starts_with(b"%PDF"));
         assert!(bytes.len() > 1000);

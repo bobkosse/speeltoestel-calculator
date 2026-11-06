@@ -12,6 +12,23 @@ pub struct Catalogus {
     pub per_stuk: Vec<PerStuk>,
     #[serde(default)]
     pub profielen: Vec<Profiel>,
+    /// Halffabrikaten (modules) die uit hout + losse producten bestaan.
+    #[serde(default)]
+    pub modules: Vec<Module>,
+}
+
+/// Een halffabrikaat (module): eigen onderdelen + uren bouwen/plaatsen.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Module {
+    pub id: String,
+    #[serde(default)]
+    pub naam: String,
+    #[serde(default)]
+    pub regels: Vec<ProjectLijn>,
+    #[serde(default)]
+    pub uren_bouwen: f64,
+    #[serde(default)]
+    pub uren_plaatsen: f64,
 }
 
 /// Eén project binnen het projectenbestand.
@@ -26,12 +43,24 @@ pub struct ProjectEntry {
     /// Groepen met onderdelen binnen dit project.
     #[serde(default)]
     pub groepen: Vec<ProjectGroep>,
+    /// Samenstelling van het project uit halffabrikaten (modules).
+    #[serde(default)]
+    pub modules: Vec<ProjectModule>,
     /// Hash van (materialen + project) op moment van laatste calculatie.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calc_hash: Option<String>,
     /// Totaal excl. BTW van de laatste calculatie.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calc_totaal: Option<f64>,
+}
+
+/// Een module in een project met aantal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectModule {
+    #[serde(default)]
+    pub module_id: Option<String>,
+    #[serde(default)]
+    pub aantal: u32,
 }
 
 /// Een groep onderdelen binnen een project.
@@ -84,6 +113,7 @@ fn standaard_instellingen() -> Instellingen {
     Instellingen {
         zaagsnede_mm: 3.0,
         munt: "EUR".to_string(),
+        uur_tarief: 45.0,
     }
 }
 
@@ -101,6 +131,7 @@ impl Default for Catalogus {
                     eenheid: "doos".to_string(),
                     aantal_per_eenheid: 100.0,
                     prijs_per_eenheid: 12.0,
+                    marge_pct: 30.0,
                 },
                 PerStuk {
                     id: "s2".to_string(),
@@ -110,6 +141,7 @@ impl Default for Catalogus {
                     eenheid: "doos".to_string(),
                     aantal_per_eenheid: 50.0,
                     prijs_per_eenheid: 17.5,
+                    marge_pct: 30.0,
                 },
             ],
             profielen: vec![Profiel {
@@ -121,6 +153,26 @@ impl Default for Catalogus {
                     lengte_mm: 2000,
                     prijs: 48.50,
                 }],
+            }],
+            modules: vec![Module {
+                id: "m1".to_string(),
+                naam: "Kleine toren".to_string(),
+                regels: vec![
+                    ProjectLijn::Zaagdeel {
+                        id: "ml1".to_string(),
+                        profiel_id: Some("p1".to_string()),
+                        lengte_mm: 1000,
+                        breedte_mm: None,
+                        aantal: 2,
+                    },
+                    ProjectLijn::PerStuk {
+                        id: "ml2".to_string(),
+                        materiaal_id: Some("s1".to_string()),
+                        aantal: 24,
+                    },
+                ],
+                uren_bouwen: 3.0,
+                uren_plaatsen: 1.0,
             }],
         }
     }
@@ -139,6 +191,13 @@ pub struct Instellingen {
     pub zaagsnede_mm: f64,
     #[serde(default = "eur")]
     pub munt: String,
+    /// Uurtarief inkoop/werk (€/uur) voor calculatie van verkoopprijs.
+    #[serde(default = "tarief45")]
+    pub uur_tarief: f64,
+}
+
+fn tarief45() -> f64 {
+    45.0
 }
 
 fn drie() -> f64 {
@@ -166,6 +225,9 @@ pub struct PerStuk {
     /// Totaalprijs per inkoopeenheid (prijs van de verpakking).
     #[serde(default)]
     pub prijs_per_eenheid: f64,
+    /// Marge op dit product (% over de inkoopprijs), meegenomen in de verkoopprijs.
+    #[serde(default)]
+    pub marge_pct: f64,
 }
 
 impl PerStuk {

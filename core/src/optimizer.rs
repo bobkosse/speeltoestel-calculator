@@ -391,10 +391,33 @@ pub fn rond2(x: f64) -> f64 {
 }
 
 #[derive(Debug, Clone)]
+pub struct ModuleKosten {
+    pub naam: String,
+    pub aantal: u32,
+    pub inkoop: f64,
+    pub marge: f64,
+    pub uren: f64,
+}
+
+#[derive(Debug, Clone)]
 pub struct Berekening {
     pub zaagsnede_mm: i64,
     pub per_stuk: Vec<PerStukKosten>,
     pub zaag_resultaten: Vec<ZaagResultaat>,
+    pub modules: Vec<ModuleKosten>,
+    pub uur_tarief: f64,
+    /// Inkoopprijs materiaal (hout + losse producten), excl. BTW.
+    pub inkoop_totaal: f64,
+    /// Totale marge over losse inkoopproducten.
+    pub marge_totaal: f64,
+    pub uren_totaal: f64,
+    /// Arbeidskosten = uur_tarief × uren.
+    pub arbeid: f64,
+    /// Verkoopprijs = inkoop + marge + arbeid.
+    pub verkoopprijs: f64,
+    /// Bruto winst = verkoopprijs − inkoop.
+    pub bruto_winst: f64,
+    /// alias voor inkoop_totaal (backward compat)
     pub totaal_excl: f64,
 }
 
@@ -407,7 +430,9 @@ pub struct PerStukKosten {
     pub inkoop_aantal: u32,
     pub prijs_per_eenheid: f64,
     pub prijs_per_stuk: f64,
+    pub marge_pct: f64,
     pub kosten: f64,
+    pub marge: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -418,13 +443,11 @@ pub struct ZaagResultaat {
     pub kosten: f64,
 }
 
-pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Berekening {
-    let zaagsnede = catalogus.instellingen.zaagsnede_mm.round() as i64;
-
+fn bereken_regels(catalogus: &Catalogus, regels: &[ProjectLijn], zaagsnede: i64) -> (Vec<PerStukKosten>, Vec<ZaagResultaat>) {
     let mut per_stuk: Vec<PerStukKosten> = Vec::new();
     let mut zaag_groepen: Vec<(String, Vec<Stuk>)> = Vec::new();
 
-    for lijn in project {
+    for lijn in regels {
         match lijn {
             ProjectLijn::PerStuk { materiaal_id, aantal, .. } => {
                 if let Some(m) = materiaal_id
@@ -437,6 +460,7 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
                     } else {
                         *aantal
                     };
+                    let kosten = rond2(*aantal as f64 * stukprijs);
                     per_stuk.push(PerStukKosten {
                         naam: m.naam.clone(),
                         aantal: *aantal,
@@ -445,7 +469,9 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
                         inkoop_aantal,
                         prijs_per_eenheid: m.prijs_per_eenheid,
                         prijs_per_stuk: stukprijs,
-                        kosten: rond2(*aantal as f64 * stukprijs),
+                        marge_pct: m.marge_pct,
+                        marge: rond2(kosten * m.marge_pct / 100.0),
+                        kosten,
                     });
                 }
             }
@@ -465,7 +491,6 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
     }
 
     let mut zaag_resultaten: Vec<ZaagResultaat> = Vec::new();
-    let mut totaal = 0.0;
     for (pid, stukken) in zaag_groepen {
         let Some(profiel) = catalogus.profielen.iter().find(|p| p.id == pid).cloned() else {
             continue;
@@ -473,22 +498,66 @@ pub fn bereken_project(catalogus: &Catalogus, project: &[ProjectLijn]) -> Bereke
         let inkoop: Vec<(i64, f64)> = profiel.inkoop.iter().map(|o| (o.lengte_mm, o.prijs)).collect();
         let resultaat = optimaliseer_profiel(&stukken, profiel.breedte_mm, &inkoop, zaagsnede);
         let kosten = rond2(resultaat.as_ref().map_or(0.0, |r| r.kosten));
-        totaal += kosten;
         zaag_resultaten.push(ZaagResultaat { profiel, stukken, resultaat, kosten });
     }
-    // sorteer per product: dikte, dan breedte, dan houtsoort (zelfde planken bij elkaar)
     zaag_resultaten.sort_by(|a, b| {
         (a.profiel.dikte_mm, a.profiel.breedte_mm, a.profiel.houtsoort.clone())
             .cmp(&(b.profiel.dikte_mm, b.profiel.breedte_mm, b.profiel.houtsoort.clone()))
     });
-    for l in &per_stuk {
-        totaal += l.kosten;
+    (per_stuk, zaag_resultaten)
+}
+
+pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEntry) -> Berekening {
+    let zaagsnede = catalogus.instellingen.zaagsnede_mm.round() as i64;
+    let uur_tarief = catalogus.instellingen.uur_tarief;
+
+    // modules uit het project flattenen + legacy regels
+    let mut alle_regels = project.alle_regels();
+    let mut modules: Vec<ModuleKosten> = Vec::new();
+    for pm in &project.modules {
+        let Some(m) = pm
+            .module_id
+            .as_ref()
+            .and_then(|id| catalogus.modules.iter().find(|m| &m.id == id))
+        else {
+            continue;
+        };
+        for _ in 0..pm.aantal {
+            alle_regels.extend(m.regels.iter().cloned());
+        }
+        let (ps, zr) = bereken_regels(catalogus, &m.regels, zaagsnede);
+        let inkoop_m = rond2(ps.iter().map(|l| l.kosten).sum::<f64>() + zr.iter().map(|z| z.kosten).sum::<f64>());
+        let marge_m = rond2(ps.iter().map(|l| l.marge).sum());
+        let uren_m = pm.aantal as f64 * (m.uren_bouwen + m.uren_plaatsen);
+        modules.push(ModuleKosten {
+            naam: m.naam.clone(),
+            aantal: pm.aantal,
+            inkoop: inkoop_m,
+            marge: marge_m,
+            uren: uren_m,
+        });
     }
+
+    let (per_stuk, zaag_resultaten) = bereken_regels(catalogus, &alle_regels, zaagsnede);
+    let inkoop_totaal = rond2(per_stuk.iter().map(|l| l.kosten).sum::<f64>() + zaag_resultaten.iter().map(|z| z.kosten).sum::<f64>());
+    let marge_totaal = rond2(per_stuk.iter().map(|l| l.marge).sum());
+    let uren_totaal = modules.iter().map(|m| m.uren).sum();
+    let arbeid = rond2(uur_tarief * uren_totaal);
+    let verkoopprijs = rond2(inkoop_totaal + marge_totaal + arbeid);
+    let bruto_winst = rond2(verkoopprijs - inkoop_totaal);
 
     Berekening {
         zaagsnede_mm: zaagsnede,
         per_stuk,
         zaag_resultaten,
-        totaal_excl: rond2(totaal),
+        modules,
+        uur_tarief,
+        inkoop_totaal,
+        marge_totaal,
+        uren_totaal,
+        arbeid,
+        verkoopprijs,
+        bruto_winst,
+        totaal_excl: inkoop_totaal,
     }
 }

@@ -188,6 +188,30 @@ mod tests {
     }
 
     #[test]
+    fn module_hout_kolommen_tellen_op_tot_totaal() {
+        // 2 modules, elk 1×950 mm uit 2000 mm à €40 → globaal 1 plank (€40) i.p.v. 2 (€80)
+        use crate::model::{Module, ProjectModule};
+        let mut catalogus = test_catalogus(); // p1: 2000 mm @ €40
+        catalogus.modules = vec![
+            Module { id: "m1".into(), naam: "A".into(), regels: vec![ProjectLijn::Zaagdeel { id: "a".into(), profiel_id: Some("p1".into()), lengte_mm: 950, breedte_mm: None, aantal: 1 }], uren_bouwen: 0.0, uren_plaatsen: 0.0, lengte_mm: 950 },
+            Module { id: "m2".into(), naam: "B".into(), regels: vec![ProjectLijn::Zaagdeel { id: "b".into(), profiel_id: Some("p1".into()), lengte_mm: 950, breedte_mm: None, aantal: 1 }], uren_bouwen: 0.0, uren_plaatsen: 0.0, lengte_mm: 950 },
+        ];
+        let entry = ProjectEntry {
+            id: "pr".into(), naam: "t".into(), regels: Vec::new(), groepen: Vec::new(),
+            modules: vec![
+                ProjectModule { module_id: Some("m1".into()), aantal: 1 },
+                ProjectModule { module_id: Some("m2".into()), aantal: 1 },
+            ],
+            calc_hash: None, calc_totaal: None,
+        };
+        let res = bereken_project(&catalogus, &entry);
+        assert_eq!(res.inkoop_totaal, 40.0); // 1 gedeelde plank
+        let sum: f64 = res.modules.iter().map(|m| m.inkoop).sum();
+        assert!((sum - res.inkoop_totaal).abs() < 0.01, "module-kolom {sum} != totaal {}", res.inkoop_totaal);
+        assert!((res.modules[0].inkoop - 20.0).abs() < 0.01);
+    }
+
+    #[test]
     fn te_lang_deel_kan_niet() {
         assert!(pack_optimaal(&[2500], 2000, 3).is_none());
     }

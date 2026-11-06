@@ -400,6 +400,8 @@ pub struct ModuleKosten {
     pub uren: f64,
     /// aantal × modulelengte (mm)
     pub lengte_totaal: i64,
+    /// hout-inkoopdeel (standalone) — wordt na globale optimalisatie proportioneel geschaald
+    pub hout: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -556,10 +558,22 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
             marge: marge_m,
             uren: uren_m,
             lengte_totaal: lengte_m,
+            hout: hout_m,
         });
     }
 
     let (per_stuk, zaag_resultaten) = bereken_regels(catalogus, &alle_regels, zaagsnede);
+    // houtkosten per module schalen naar de globale optimum, zodat de module-kolommen
+    // (inkoop/marge) precies optellen tot het projecttotaal
+    let global_wood = zaag_resultaten.iter().map(|z| z.kosten).sum::<f64>();
+    let standalone_wood: f64 = modules.iter().map(|m| m.hout).sum();
+    let wood_factor = if standalone_wood > 1e-9 { global_wood / standalone_wood } else { 1.0 };
+    if (wood_factor - 1.0).abs() > 1e-9 {
+        for m in modules.iter_mut() {
+            m.inkoop = rond2(m.inkoop - m.hout + m.hout * wood_factor);
+            m.marge = rond2(m.marge + (m.hout * wood_factor - m.hout) * catalogus.instellingen.marge_hout_pct / 100.0);
+        }
+    }
     let inkoop_totaal = rond2(per_stuk.iter().map(|l| l.kosten).sum::<f64>() + zaag_resultaten.iter().map(|z| z.kosten).sum::<f64>());
     let hout_inkoop = rond2(zaag_resultaten.iter().map(|z| z.kosten).sum::<f64>());
     let marge_hout = rond2(hout_inkoop * catalogus.instellingen.marge_hout_pct / 100.0);

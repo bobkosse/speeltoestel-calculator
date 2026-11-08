@@ -191,7 +191,8 @@ mod tests {
 
     #[test]
     fn module_hout_kolommen_tellen_op_tot_totaal() {
-        // 2 modules, elk 1×950 mm uit 2000 mm à €40 → per module 1 plank (€40), totaal €80
+        // 2 modules, elk 1×950 mm uit 2000 mm à €40 → module-rijen elk €40 (standalone),
+        // maar het projecttotaal is de globale inkoop: 2×950 in 1 plank = €40
         use crate::model::{Module, ProjectModule};
         let mut catalogus = test_catalogus(); // p1: 2000 mm @ €40
         catalogus.modules = vec![
@@ -207,10 +208,9 @@ mod tests {
             calc_hash: None, calc_totaal: None,
         };
         let res = bereken_project(&catalogus, &entry);
-        assert_eq!(res.inkoop_totaal, 80.0); // per module 1 plank
-        let sum: f64 = res.modules.iter().map(|m| m.inkoop).sum();
-        assert!((sum - res.inkoop_totaal).abs() < 0.01, "module-kolom {sum} != totaal {}", res.inkoop_totaal);
-        assert!((res.modules[0].inkoop - 40.0).abs() < 0.01);
+        assert_eq!(res.inkoop_totaal, 40.0); // globaal: 1 gedeelde plank
+        assert_eq!(res.inkoop_module_som, 80.0); // som van standalone module-rijen
+        assert!((res.modules[0].inkoop - 40.0).abs() < 0.01); // module-rij = standalone
     }
 
     #[test]

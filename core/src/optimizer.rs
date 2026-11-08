@@ -426,6 +426,8 @@ pub struct Berekening {
     pub bruto_winst: f64,
     /// Totale lengte van het project (alle modules, in mm).
     pub lengte_totaal: i64,
+    /// Som van de standalone module-inkoop (vóór globale optimalisatie).
+    pub inkoop_module_som: f64,
     /// alias voor inkoop_totaal (backward compat)
     pub totaal_excl: f64,
 }
@@ -546,36 +548,7 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
     // Per module (× aantal) en per legacy regels de eigen inkoop bepalen;
     // daarna per product/profiel samentellen. Zo is de module-inkoop in het
     // projectoverzicht gelijk aan (aantal ×) de prijs op de module-kaart.
-    let mut per_stuk: Vec<PerStukKosten> = Vec::new();
-    let mut zaag_map: Vec<(String, Vec<Bak>, f64)> = Vec::new(); // (profiel_id, bakken, kosten)
     let mut modules: Vec<ModuleKosten> = Vec::new();
-
-    let mut mergable = |ps: Vec<PerStukKosten>, zr: Vec<ZaagResultaat>, per_stuk: &mut Vec<PerStukKosten>, zaag_map: &mut Vec<(String, Vec<Bak>, f64)>| {
-        for l in ps {
-            if let Some(e) = per_stuk.iter_mut().find(|e| e.naam == l.naam) {
-                e.aantal += l.aantal;
-                e.inkoop_aantal = if l.aantal_per_eenheid > 0.0 {
-                    ((e.aantal as f64) / l.aantal_per_eenheid).ceil() as u32
-                } else {
-                    e.aantal
-                };
-                e.kosten = rond2(e.aantal as f64 * e.prijs_per_stuk);
-                e.marge = rond2(e.kosten * e.marge_pct / 100.0);
-            } else {
-                per_stuk.push(l);
-            }
-        }
-        for z in zr {
-            let kosten = z.kosten;
-            let bakken = z.resultaat.map(|r| r.bakken).unwrap_or_default();
-            if let Some(e) = zaag_map.iter_mut().find(|(id, _, _)| *id == z.profiel.id) {
-                e.1.extend(bakken);
-                e.2 += kosten;
-            } else {
-                zaag_map.push((z.profiel.id.clone(), bakken, kosten));
-            }
-        }
-    };
 
     for pm in &project.modules {
         let Some(m) = pm.module_id.as_ref().and_then(|id| catalogus.modules.iter().find(|m| &m.id == id)) else { continue };
@@ -584,10 +557,6 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
         let marge_m = rond2((ps.iter().map(|l| l.marge).sum::<f64>() + zr.iter().map(|z| z.kosten).sum::<f64>() * catalogus.instellingen.marge_hout_pct / 100.0) * pm.aantal as f64);
         let uren_m = pm.aantal as f64 * (m.uren_bouwen + m.uren_plaatsen);
         let lengte_m = pm.aantal as i64 * m.lengte_mm;
-        for _ in 0..pm.aantal {
-            let (ps2, zr2) = bereken_regels(catalogus, &m.regels, zaagsnede);
-            mergable(ps2, zr2, &mut per_stuk, &mut zaag_map);
-        }
         modules.push(ModuleKosten {
             naam: m.naam.clone(),
             aantal: pm.aantal,
@@ -598,40 +567,27 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
             hout: 0.0,
         });
     }
-    // legacy regels (direct op project/groepen)
-    let legacy = project.alle_regels();
-    if !legacy.is_empty() {
-        let (ps, zr) = bereken_regels(catalogus, &legacy, zaagsnede);
-        mergable(ps, zr, &mut per_stuk, &mut zaag_map);
-    }
-
-    // zaagresultaten per profiel samenvoegen
-    let mut zaag_resultaten: Vec<ZaagResultaat> = Vec::new();
-    for (pid, bakken, kosten) in zaag_map {
-        let Some(profiel) = catalogus.profielen.iter().find(|p| p.id == pid).cloned() else { continue };
-        let inkoop: Vec<(i64, f64)> = profiel.inkoop.iter().map(|o| (o.lengte_mm, o.prijs)).collect();
-        let mut per_lengte: Vec<(i64, f64, usize, f64)> = Vec::new();
-        for bak in &bakken {
-            if let Some(e) = per_lengte.iter_mut().find(|(l, _, _, _)| *l == bak.lengte) {
-                e.2 += 1;
-                e.3 = e.2 as f64 * e.1;
-            } else {
-                let p = inkoop.iter().find(|(l, _)| *l == bak.lengte).map(|(_, p)| *p).unwrap_or(0.0);
-                per_lengte.push((bak.lengte, p, 1, p));
+    // legacy regels (direct op project/groepen) flattenen in alle_regels
+    let mut alle_regels = project.alle_regels();
+    for pm in &project.modules {
+        if let Some(m) = pm.module_id.as_ref().and_then(|id| catalogus.modules.iter().find(|m| &m.id == id)) {
+            for _ in 0..pm.aantal {
+                alle_regels.extend(m.regels.iter().cloned());
             }
         }
-        let afval: i64 = bakken.iter().map(|b| b.rest * b.rest_breedte).sum();
-        let resultaat = if bakken.is_empty() { None } else {
-            Some(ProfielResultaat { per_lengte, aantal: bakken.len(), bakken, kosten, afval })
-        };
-        zaag_resultaten.push(ZaagResultaat { profiel, stukken: Vec::new(), resultaat, kosten });
     }
+    // Globale (werkelijke) inkoop over het hele project samen — dit is de echte BOM/zaagplan
+    let (per_stuk, zaag_resultaten) = bereken_regels(catalogus, &alle_regels, zaagsnede);
+
+    // zaagresultaten sorteren
+    let mut zaag_resultaten = zaag_resultaten;
     zaag_resultaten.sort_by(|a, b| {
         (a.profiel.dikte_mm, a.profiel.breedte_mm, a.profiel.houtsoort.clone())
             .cmp(&(b.profiel.dikte_mm, b.profiel.breedte_mm, b.profiel.houtsoort.clone()))
     });
 
     let inkoop_totaal = rond2(per_stuk.iter().map(|l| l.kosten).sum::<f64>() + zaag_resultaten.iter().map(|z| z.kosten).sum::<f64>());
+    let inkoop_module_som = rond2(modules.iter().map(|m| m.inkoop).sum());
     let hout_inkoop = rond2(zaag_resultaten.iter().map(|z| z.kosten).sum::<f64>());
     let marge_hout = rond2(hout_inkoop * catalogus.instellingen.marge_hout_pct / 100.0);
     let marge_totaal = rond2(per_stuk.iter().map(|l| l.marge).sum::<f64>() + marge_hout);
@@ -655,6 +611,7 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
         verkoopprijs,
         bruto_winst,
         lengte_totaal,
+        inkoop_module_som,
         totaal_excl: inkoop_totaal,
     }
 }

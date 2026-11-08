@@ -1691,7 +1691,7 @@ impl App {
                     egui::Grid::new("calc_modules").striped(true).spacing([14.0, 10.0]).show(ui, |ui| {
                         ui.label(egui::RichText::new("Module").strong());
                         ui.label(egui::RichText::new("Aantal").strong());
-                        ui.label(egui::RichText::new("Inkoop").strong());
+                        ui.label(egui::RichText::new("Inkoop (per module)").strong());
                         ui.label(egui::RichText::new("Marge").strong());
                         ui.label(egui::RichText::new("Uren").strong());
                         ui.label(egui::RichText::new("Lengte").strong());
@@ -1712,6 +1712,12 @@ impl App {
                     ui.label("Kostprijs (inkoop materiaal, excl. BTW):");
                     ui.label(egui::RichText::new(self.fmt_bedrag(res.inkoop_totaal)).strong());
                     ui.end_row();
+                    let besparing = res.inkoop_module_som - res.inkoop_totaal;
+                    if besparing > 0.005 {
+                        ui.label("Bespaard door planken te delen over het hele project:");
+                        ui.label(egui::RichText::new(format!("− {}", self.fmt_bedrag(besparing))).color(ACCENT));
+                        ui.end_row();
+                    }
                     ui.label("Marge (losse producten + hout):");
                     ui.label(self.fmt_bedrag(res.marge_totaal));
                     ui.end_row();

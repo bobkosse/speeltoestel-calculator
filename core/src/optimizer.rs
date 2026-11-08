@@ -470,18 +470,30 @@ fn bereken_regels(catalogus: &Catalogus, regels: &[ProjectLijn], zaagsnede: i64)
                         *aantal
                     };
                     let kosten = rond2(*aantal as f64 * stukprijs);
-                    per_stuk.push(PerStukKosten {
-                        naam: m.naam.clone(),
-                        aantal: *aantal,
-                        eenheid: m.eenheid.clone(),
-                        aantal_per_eenheid: m.aantal_per_eenheid,
-                        inkoop_aantal,
-                        prijs_per_eenheid: m.prijs_per_eenheid,
-                        prijs_per_stuk: stukprijs,
-                        marge_pct: m.marge_pct,
-                        marge: rond2(kosten * m.marge_pct / 100.0),
-                        kosten,
-                    });
+                    // samenvoegen per product: zelfde product → één regel met totaalaantal
+                    if let Some(e) = per_stuk.iter_mut().find(|e| e.naam == m.naam) {
+                        e.aantal += *aantal;
+                        e.inkoop_aantal = if m.aantal_per_eenheid > 0.0 {
+                            ((e.aantal as f64) / m.aantal_per_eenheid).ceil() as u32
+                        } else {
+                            e.aantal
+                        };
+                        e.kosten = rond2(e.aantal as f64 * stukprijs);
+                        e.marge = rond2(e.kosten * m.marge_pct / 100.0);
+                    } else {
+                        per_stuk.push(PerStukKosten {
+                            naam: m.naam.clone(),
+                            aantal: *aantal,
+                            eenheid: m.eenheid.clone(),
+                            aantal_per_eenheid: m.aantal_per_eenheid,
+                            inkoop_aantal,
+                            prijs_per_eenheid: m.prijs_per_eenheid,
+                            prijs_per_stuk: stukprijs,
+                            marge_pct: m.marge_pct,
+                            marge: rond2(kosten * m.marge_pct / 100.0),
+                            kosten,
+                        });
+                    }
                 }
             }
             ProjectLijn::Zaagdeel { profiel_id, lengte_mm, breedte_mm, aantal, .. } => {

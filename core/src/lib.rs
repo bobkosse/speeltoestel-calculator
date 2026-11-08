@@ -214,6 +214,24 @@ mod tests {
     }
 
     #[test]
+    fn per_stuk_wordt_samengevoegd_per_product() {
+        let catalogus = test_catalogus();
+        let entry = ProjectEntry {
+            id: "t".into(), naam: "t".into(),
+            regels: vec![
+                ProjectLijn::PerStuk { id: "a".into(), materiaal_id: Some("s1".into()), aantal: 11 },
+                ProjectLijn::PerStuk { id: "b".into(), materiaal_id: Some("s1".into()), aantal: 9 },
+            ],
+            groepen: Vec::new(), modules: Vec::new(), calc_hash: None, calc_totaal: None,
+        };
+        let res = bereken_project(&catalogus, &entry);
+        assert_eq!(res.per_stuk.len(), 1, "zelfde product moet één regel worden");
+        let s1 = res.per_stuk.iter().find(|l| l.naam.contains("Schroef")).unwrap();
+        assert_eq!(s1.aantal, 20);
+        assert!((s1.kosten - 20.0 * s1.prijs_per_stuk).abs() < 0.01);
+    }
+
+    #[test]
     fn te_lang_deel_kan_niet() {
         assert!(pack_optimaal(&[2500], 2000, 3).is_none());
     }

@@ -546,10 +546,11 @@ pub fn bereken_project(catalogus: &Catalogus, project: &crate::model::ProjectEnt
             alle_regels.extend(m.regels.iter().cloned());
         }
         let (ps, zr) = bereken_regels(catalogus, &m.regels, zaagsnede);
-        let inkoop_m = rond2(ps.iter().map(|l| l.kosten).sum::<f64>() + zr.iter().map(|z| z.kosten).sum::<f64>());
-        let hout_m = rond2(zr.iter().map(|z| z.kosten).sum::<f64>());
-        let marge_m = rond2(ps.iter().map(|l| l.marge).sum::<f64>() + hout_m * catalogus.instellingen.marge_hout_pct / 100.0);
-        let uren_m = pm.aantal as f64 * (m.uren_bouwen + m.uren_plaatsen);
+        let n = pm.aantal as f64;
+        let inkoop_m = rond2((ps.iter().map(|l| l.kosten).sum::<f64>() + zr.iter().map(|z| z.kosten).sum::<f64>()) * n);
+        let hout_m = rond2(zr.iter().map(|z| z.kosten).sum::<f64>() * n);
+        let marge_m = rond2((ps.iter().map(|l| l.marge).sum::<f64>() + zr.iter().map(|z| z.kosten).sum::<f64>() * catalogus.instellingen.marge_hout_pct / 100.0) * n);
+        let uren_m = n * (m.uren_bouwen + m.uren_plaatsen);
         let lengte_m = pm.aantal as i64 * m.lengte_mm;
         modules.push(ModuleKosten {
             naam: m.naam.clone(),

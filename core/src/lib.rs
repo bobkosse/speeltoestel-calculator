@@ -139,6 +139,8 @@ mod tests {
         assert_eq!(res.bruto_winst, 363.0);
         assert_eq!(res.modules.len(), 1);
         assert_eq!(res.modules[0].uren, 8.0);
+        assert_eq!(res.modules[0].inkoop, 170.0); // 2 × (80 hout + 5 schroeven)
+        assert_eq!(res.modules[0].marge, 3.0);
         assert_eq!(res.modules[0].lengte_totaal, 5000);
         assert_eq!(res.lengte_totaal, 5000);
     }
